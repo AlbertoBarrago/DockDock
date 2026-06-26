@@ -12,6 +12,7 @@ final class DockObserver: ObservableObject {
     var keepAliveRect: CGRect = .zero
 
     private var globalMonitor: Any?
+    private var rightClickMonitor: Any?
     private var debounceTask: Task<Void, Never>?
     private var dismissTask: Task<Void, Never>?
     private let settings = AppSettings.shared
@@ -28,6 +29,10 @@ final class DockObserver: ObservableObject {
         globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .mouseMoved) { [weak self] _ in
             Task { @MainActor [weak self] in self?.handleMouseMove() }
         }
+        // Dismiss our panel when the user right-clicks a Dock icon to open its context menu.
+        rightClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: .rightMouseDown) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.dismissImmediately() }
+        }
         if globalMonitor == nil {
             log("DockObserver: ⚠️ global monitor is nil — check Accessibility permission")
         } else {
@@ -37,7 +42,9 @@ final class DockObserver: ObservableObject {
 
     func stop() {
         if let monitor = globalMonitor { NSEvent.removeMonitor(monitor) }
+        if let monitor = rightClickMonitor { NSEvent.removeMonitor(monitor) }
         globalMonitor = nil
+        rightClickMonitor = nil
         debounceTask?.cancel()
         dismissTask?.cancel()
     }
@@ -77,7 +84,12 @@ final class DockObserver: ObservableObject {
         log("DockObserver: hovered '\(app.localizedName ?? "?")' frame=\(frame)")
         debounceTask?.cancel()
         debounceTask = Task {
-            try? await Task.sleep(for: settings.showDelay)
+            // When the Dock is auto-hidden it animates in (~300ms). Wait at least 400ms
+            // so the panel doesn't appear before the Dock has fully slid into view.
+            let delay = isDockAutoHidden()
+                ? max(settings.showDelay, .milliseconds(400))
+                : settings.showDelay
+            try? await Task.sleep(for: delay)
             guard !Task.isCancelled else { return }
             hoveredIconFrame = frame
             hoveredApp = app
@@ -112,24 +124,32 @@ final class DockObserver: ObservableObject {
         dismissTask = nil
     }
 
+    /// True when the Dock is set to auto-hide on the screen containing the mouse.
+    private func isDockAutoHidden() -> Bool {
+        let point = NSEvent.mouseLocation
+        guard let screen = screenContaining(point) else { return false }
+        let full = screen.frame, visible = screen.visibleFrame
+        return visible.minY == full.minY && visible.minX == full.minX && visible.maxX == full.maxX
+    }
+
     /// True when the cursor could plausibly be over or near the Dock.
-    /// Uses a generous threshold to handle auto-hide and large icon sizes.
+    /// Checks against whichever screen the cursor is currently on.
     private func isNearDock(_ point: NSPoint) -> Bool {
-        guard let screen = NSScreen.main else { return false }
+        guard let screen = screenContaining(point) else { return false }
         let full = screen.frame
         let visible = screen.visibleFrame
-        // Generous fixed threshold — covers auto-hide reveal zone + largest Dock size.
         let threshold: CGFloat = 200
 
-        let dockAtBottom = visible.minY > full.minY || visible.minX == full.minX && visible.maxX == full.maxX
-        let dockAtLeft   = visible.minX > full.minX
-        let dockAtRight  = visible.maxX < full.maxX
+        let dockAtLeft  = visible.minX > full.minX
+        let dockAtRight = visible.maxX < full.maxX
 
         if dockAtLeft  { return point.x < full.minX + max(visible.minX - full.minX, threshold) }
         if dockAtRight { return point.x > full.maxX - max(full.maxX - visible.maxX, threshold) }
-        // Default: Dock at bottom (including auto-hide where visible == full minus menu bar)
-        _ = dockAtBottom
         return point.y < full.minY + max(visible.minY - full.minY, threshold)
+    }
+
+    private func screenContaining(_ point: NSPoint) -> NSScreen? {
+        NSScreen.screens.first(where: { $0.frame.contains(point) }) ?? NSScreen.main
     }
 
     // MARK: - Dock icon detection

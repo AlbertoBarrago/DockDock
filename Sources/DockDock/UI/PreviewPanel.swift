@@ -41,9 +41,14 @@ final class PreviewPanel: NSPanel {
             contentView = NSHostingView(rootView: view)
         }
 
-        let size: CGSize = isSpotify
-            ? CGSize(width: 260, height: 370)
-            : (contentView?.fittingSize ?? CGSize(width: 260, height: 180))
+        let size: CGSize
+        if isSpotify {
+            size = SpotifyController.shared.track != nil
+                ? CGSize(width: 260, height: 370)
+                : CGSize(width: 260, height: 72)
+        } else {
+            size = contentView?.fittingSize ?? CGSize(width: 260, height: 180)
+        }
         let frame = position(size: size, above: dockIconFrame)
 
         setFrame(frame, display: false)
@@ -73,7 +78,9 @@ final class PreviewPanel: NSPanel {
 
     @ViewBuilder
     private func content(for app: NSRunningApplication, windows: [WindowInfo]) -> some View {
-        if app.bundleIdentifier == "com.spotify.client" {
+        // app is guaranteed to be in NSWorkspace.runningApplications (DockObserver matched it),
+        // so checking app.bundleIdentifier + the settings toggle is enough — no extra isRunning call.
+        if app.bundleIdentifier == "com.spotify.client" && AppSettings.shared.enableSpotifyPanel {
             SpotifyView()
         } else {
             PreviewGridView(app: app, windows: windows)
@@ -88,7 +95,7 @@ final class PreviewPanel: NSPanel {
                            ?? NSScreen.main
         else { return CGRect(origin: .zero, size: size) }
 
-        let gap: CGFloat = 8
+        let gap: CGFloat = 6
         var x = iconFrame.midX - size.width / 2
         var y = iconFrame.maxY + gap
 

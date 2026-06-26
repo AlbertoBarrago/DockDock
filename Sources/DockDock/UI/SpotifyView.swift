@@ -7,6 +7,10 @@ struct SpotifyView: View {
         VStack(spacing: 0) {
             if spotify.playerState == .notRunning {
                 notRunning
+            } else if spotify.isLoadingInitialState {
+                loadingState
+            } else if spotify.track == nil {
+                nothingPlaying
             } else {
                 player
             }
@@ -132,14 +136,34 @@ struct SpotifyView: View {
         .foregroundStyle(.primary)
     }
 
-    // MARK: - Not running
+    // MARK: - Empty states
 
     private var notRunning: some View {
+        emptyState(icon: "music.note.slash", text: "Spotify is not running")
+    }
+
+    private var nothingPlaying: some View {
+        emptyState(icon: "music.note", text: "Nothing playing")
+    }
+
+    private var loadingState: some View {
         HStack(spacing: 10) {
-            Image(systemName: "music.note")
+            ProgressView()
+                .scaleEffect(0.75)
+            Text("Loading…")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(20)
+    }
+
+    private func emptyState(icon: String, text: String) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
                 .font(.title2)
                 .foregroundStyle(.tertiary)
-            Text("Spotify is not running")
+            Text(text)
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
         }

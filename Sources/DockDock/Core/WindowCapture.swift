@@ -68,8 +68,11 @@ enum WindowCapture {
     // MARK: - Legacy CGWindowList fallback
 
     private static func captureLegacy(pid: pid_t) -> [WindowInfo] {
+        // Use optionAll (not optionOnScreenOnly) so minimized windows and windows
+        // on other Mission Control spaces are included. We filter by PID so the
+        // broader query doesn't cause performance issues.
         guard let list = CGWindowListCopyWindowInfo(
-            [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID
+            [.optionAll, .excludeDesktopElements], kCGNullWindowID
         ) as? [[CFString: Any]] else {
             log("WindowCapture: CGWindowListCopyWindowInfo returned nil")
             return []
@@ -78,23 +81,30 @@ enum WindowCapture {
         let pidEntries = list.filter { ($0[kCGWindowOwnerPID] as? pid_t) == pid }
         log("WindowCapture: legacy pid=\(pid) raw entries=\(pidEntries.count)")
 
+        let screenRecording = CGPreflightScreenCaptureAccess()
+
         return pidEntries.compactMap { info -> WindowInfo? in
             guard
-                let windowID = info[kCGWindowNumber]  as? CGWindowID,
-                let layer    = info[kCGWindowLayer]   as? Int,    layer >= 0, layer <= 8,
-                let dict     = info[kCGWindowBounds]  as? [String: CGFloat]
+                let windowID = info[kCGWindowNumber] as? CGWindowID,
+                let layer    = info[kCGWindowLayer]  as? Int, layer >= 0,
+                let dict     = info[kCGWindowBounds] as? [String: CGFloat]
             else { return nil }
 
             let bounds = CGRect(x: dict["X"] ?? 0, y: dict["Y"] ?? 0,
                                 width: dict["Width"] ?? 0, height: dict["Height"] ?? 0)
             guard bounds.width > 50, bounds.height > 50 else { return nil }
 
-            let thumb = CGWindowListCreateImage(.null, .optionIncludingWindow, windowID,
-                                               [.nominalResolution, .boundsIgnoreFraming])
+            let isOnScreen = (info[kCGWindowIsOnscreen] as? Bool) ?? true
+
+            // CGWindowListCreateImage returns a blank opaque image (not nil) without Screen Recording.
+            // Only attempt capture for on-screen windows; minimized windows can't be captured anyway.
+            let thumb: CGImage? = isOnScreen && screenRecording
+                ? CGWindowListCreateImage(.null, .optionIncludingWindow, windowID, [.nominalResolution, .boundsIgnoreFraming])
+                : nil
             return WindowInfo(
                 id: windowID, ownerPID: pid,
                 title: (info[kCGWindowName] as? String) ?? "",
-                bounds: bounds, thumbnail: thumb, isMinimized: false
+                bounds: bounds, thumbnail: thumb, isMinimized: !isOnScreen
             )
         }
     }

@@ -14,137 +14,241 @@ enum SpotifyPlayerState {
     case playing, paused, stopped, notRunning
 }
 
-/// Communicates with Spotify via AppleScript (no private APIs).
-/// macOS will ask the user once for Automation permission to control Spotify.
+/// Reads Spotify state via distributed notifications — zero TCC permission required.
+/// Controls (play/pause/next/prev) use AppleScript and silently no-op if Automation is denied.
 @MainActor
 final class SpotifyController: ObservableObject {
     static let shared = SpotifyController()
-    private init() {}
 
     @Published var track: SpotifyTrack?
     @Published var playerState: SpotifyPlayerState = .notRunning
     @Published var artworkImage: NSImage?
+    @Published var isLoadingInitialState: Bool = false
 
-    private var refreshTask: Task<Void, Never>?
-    private var lastArtworkURL: URL?
+    private var playbackObserver: NSObjectProtocol?
+    private var terminationObserver: NSObjectProtocol?
+    private var positionTimer: Timer?
+    private var lastArtworkTrackID: String?
+
+    private init() {
+        // Spotify broadcasts playback state changes — no Automation TCC needed.
+        playbackObserver = DistributedNotificationCenter.default().addObserver(
+            forName: NSNotification.Name("com.spotify.client.PlaybackStateChanged"),
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            self?.handlePlaybackNotification(note)
+        }
+
+        // Detect when Spotify quits.
+        terminationObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didTerminateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+                  app.bundleIdentifier == "com.spotify.client" else { return }
+            self?.handleSpotifyQuit()
+        }
+    }
 
     var isRunning: Bool {
-        NSWorkspace.shared.runningApplications.contains {
-            $0.bundleIdentifier == "com.spotify.client"
-        }
+        NSWorkspace.shared.runningApplications.contains { $0.bundleIdentifier == "com.spotify.client" }
     }
 
+    // Called when the SpotifyView appears. Sets the initial state without blocking.
     func startRefreshing() {
-        guard refreshTask == nil else { return }
-        refreshTask = Task {
-            while !Task.isCancelled {
-                await refresh()
-                try? await Task.sleep(for: .seconds(3))
-            }
-        }
-    }
-
-    func stopRefreshing() {
-        refreshTask?.cancel()
-        refreshTask = nil
-    }
-
-    // MARK: - Controls
-
-    func playPause() {
-        Task.detached { runAppleScript("tell application \"Spotify\" to playpause") }
-        // Optimistic UI update
-        playerState = playerState == .playing ? .paused : .playing
-    }
-
-    func nextTrack() {
-        Task.detached { runAppleScript("tell application \"Spotify\" to next track") }
-        Task {
-            try? await Task.sleep(for: .milliseconds(400))
-            await refresh()
-        }
-    }
-
-    func previousTrack() {
-        Task.detached { runAppleScript("tell application \"Spotify\" to previous track") }
-        Task {
-            try? await Task.sleep(for: .milliseconds(400))
-            await refresh()
-        }
-    }
-
-    // MARK: - Private
-
-    private func refresh() async {
-        guard isRunning else {
+        if !isRunning {
             playerState = .notRunning
             track = nil
             return
         }
+        if playerState == .notRunning { playerState = .stopped }
 
-        // Fetch everything in one AppleScript call — ASCII 29 (GS) as field separator.
-        let script = """
+        // Show loading spinner while we wait for the AppleScript fetch.
+        // Only enter loading state if we don't already have track info from notifications.
+        if track == nil { isLoadingInitialState = true }
+
+        // Fetch initial state on the main actor — TCC token for AppleScript only propagates
+        // correctly on the main thread on macOS 15+. Sleep briefly so the panel renders first.
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(150))
+            self?.fetchCurrentState()
+        }
+    }
+
+    private func fetchCurrentState() {
+        // Each variable is set individually to avoid AppleScript parsing ambiguity.
+        // The line-continuation backslash and short variable names like "st" can
+        // confuse the AppleScript compiler in some locales / OS versions.
+        let source = """
         tell application "Spotify"
+            set stateName to (player state as string)
+            if stateName is "stopped" then return "stopped"
             set sep to ASCII character 29
-            return (name of current track) & sep \
-                 & (artist of current track) & sep \
-                 & (album of current track) & sep \
-                 & (artwork url of current track) & sep \
-                 & (duration of current track) & sep \
-                 & (player state as text) & sep \
-                 & (player position as text)
+            set t to current track
+            set trackPos to (player position as string)
+            set trackDur to (duration of t as string)
+            return stateName & sep & (name of t) & sep & (artist of t) & sep & (album of t) & sep & trackDur & sep & trackPos & sep & (id of t)
         end tell
         """
-
-        guard let raw = await runAppleScriptAsync(script) else {
-            log("Spotify: AppleScript returned nil")
+        var err: NSDictionary?
+        guard let raw = NSAppleScript(source: source)?.executeAndReturnError(&err).stringValue else {
+            if let err { log("Spotify fetchCurrentState: \(err)") }
+            isLoadingInitialState = false
             return
         }
+        if raw == "stopped" { playerState = .stopped; track = nil; isLoadingInitialState = false; return }
+
         let parts = raw.components(separatedBy: "\u{1D}")
         guard parts.count >= 6 else { return }
 
-        let artURLString = parts[3].addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? parts[3]
-        let artURL = URL(string: artURLString)
-        log("Spotify: track='\(parts[0])' state='\(parts[5])' artURL='\(parts[3])'")
+        let stateStr = parts[0].lowercased()
+        let pos      = Double(parts[5]) ?? 0
+        let trackID  = parts.count > 6 ? parts[6] : ""
 
-        let newTrack = SpotifyTrack(
-            name: parts[0],
-            artist: parts[1],
-            album: parts[2],
-            artworkURL: artURL,
+        track = SpotifyTrack(
+            name: parts[1], artist: parts[2], album: parts[3],
+            artworkURL: nil,
             durationMs: Int(parts[4]) ?? 0,
-            positionSec: Double(parts.count > 6 ? parts[6] : "0") ?? 0
+            positionSec: pos
         )
-        if newTrack != track { track = newTrack }
+        switch stateStr {
+        case "playing":
+            playerState = .playing
+            startPositionTimer(from: pos)
+        default:
+            playerState = .paused
+        }
+        if !trackID.isEmpty, trackID != lastArtworkTrackID {
+            lastArtworkTrackID = trackID
+            fetchArtwork(trackID: trackID)
+        }
+        isLoadingInitialState = false
+        log("Spotify fetchCurrentState: '\(parts[1])' \(stateStr)")
+    }
 
-        switch parts[5].lowercased() {
-        case "playing": playerState = .playing
-        case "paused":  playerState = .paused
-        default:        playerState = .stopped
+    func stopRefreshing() {
+        stopPositionTimer()
+    }
+
+    // MARK: - Controls (AppleScript; silently fail if Automation denied)
+
+    func playPause() {
+        playerState = playerState == .playing ? .paused : .playing
+        Task.detached { runAppleScript("tell application \"Spotify\" to playpause") }
+    }
+
+    func nextTrack() {
+        Task.detached { runAppleScript("tell application \"Spotify\" to next track") }
+    }
+
+    func previousTrack() {
+        Task.detached { runAppleScript("tell application \"Spotify\" to previous track") }
+    }
+
+    // MARK: - Notification handlers
+
+    private func handlePlaybackNotification(_ note: Notification) {
+        guard let info = note.userInfo else { return }
+
+        let stateStr = (info["Player State"] as? String ?? "").lowercased()
+        switch stateStr {
+        case "playing":
+            playerState = .playing
+            let pos = (info["Playback Position"] as? Double) ?? 0
+            startPositionTimer(from: pos)
+        case "paused":
+            playerState = .paused
+            stopPositionTimer()
+        default:
+            playerState = .stopped
+            track = nil
+            stopPositionTimer()
+            return
         }
 
-        if let artURL, artURL != lastArtworkURL {
-            lastArtworkURL = artURL
-            await loadArtwork(from: artURL)
+        let name = info["Name"] as? String ?? ""
+        guard !name.isEmpty else { return }
+
+        let positionSec = (info["Playback Position"] as? Double) ?? 0
+        let trackID     = (info["Track ID"] as? String) ?? ""
+
+        let newTrack = SpotifyTrack(
+            name: name,
+            artist: info["Artist"] as? String ?? "",
+            album:  info["Album"]  as? String ?? "",
+            artworkURL: nil,
+            durationMs: info["Duration"] as? Int ?? 0,
+            positionSec: positionSec
+        )
+        track = newTrack
+        log("Spotify: '\(name)' state=\(stateStr)")
+
+        if !trackID.isEmpty, trackID != lastArtworkTrackID {
+            lastArtworkTrackID = trackID
+            fetchArtwork(trackID: trackID)
         }
     }
 
-    private func loadArtwork(from url: URL) async {
-        log("Spotify: loading artwork from \(url)")
-        guard let (data, _) = try? await URLSession.shared.data(from: url) else {
-            log("Spotify: artwork download failed for \(url)")
-            return
+    private func handleSpotifyQuit() {
+        playerState = .notRunning
+        track = nil
+        artworkImage = nil
+        stopPositionTimer()
+        log("Spotify: quit detected")
+    }
+
+    // MARK: - Progress timer
+
+    private func startPositionTimer(from start: Double) {
+        stopPositionTimer()
+        guard let t = track else { return }
+        // Seed current position from the notification value.
+        if t.positionSec != start {
+            track = SpotifyTrack(name: t.name, artist: t.artist, album: t.album,
+                                 artworkURL: t.artworkURL, durationMs: t.durationMs,
+                                 positionSec: start)
         }
-        guard let image = NSImage(data: data) else {
-            log("Spotify: could not decode artwork image (\(data.count) bytes)")
-            return
+        positionTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            guard let self, let t = self.track, self.playerState == .playing else { return }
+            let next = min(t.positionSec + 1, Double(t.durationMs) / 1000)
+            self.track = SpotifyTrack(name: t.name, artist: t.artist, album: t.album,
+                                     artworkURL: t.artworkURL, durationMs: t.durationMs,
+                                     positionSec: next)
         }
-        log("Spotify: artwork loaded ✓")
-        artworkImage = image
+    }
+
+    private func stopPositionTimer() {
+        positionTimer?.invalidate()
+        positionTimer = nil
+    }
+
+    // MARK: - Artwork
+
+    private func fetchArtwork(trackID: String) {
+        artworkImage = nil
+        let rawID = trackID.components(separatedBy: ":").last ?? trackID
+        guard let oembedURL = URL(string: "https://open.spotify.com/oembed?url=spotify:track:\(rawID)") else { return }
+        Task {
+            guard
+                let (data, _)   = try? await URLSession.shared.data(from: oembedURL),
+                let json         = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                let thumbStr     = json["thumbnail_url"] as? String,
+                let thumbURL     = URL(string: thumbStr),
+                let (imgData, _) = try? await URLSession.shared.data(from: thumbURL),
+                let image        = NSImage(data: imgData)
+            else {
+                log("Spotify: artwork fetch failed for \(rawID)")
+                return
+            }
+            artworkImage = image
+            log("Spotify: artwork loaded ✓")
+        }
     }
 }
 
-// MARK: - AppleScript helpers (free functions, runs off main thread)
+// MARK: - AppleScript helpers
 
 @discardableResult
 func runAppleScript(_ source: String) -> String? {

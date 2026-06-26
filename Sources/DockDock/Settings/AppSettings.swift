@@ -34,9 +34,10 @@ final class AppSettings: ObservableObject {
     static let shared = AppSettings()
     private init() {}
 
-    @AppStorage("previewSize")   var previewSize: PreviewSize = .medium
-    @AppStorage("showDelayMs")   var showDelayMs: Double = 150
-    @AppStorage("showTitles")    var showTitles: Bool = true
+    @AppStorage("previewSize")        var previewSize: PreviewSize = .medium
+    @AppStorage("showDelayMs")        var showDelayMs: Double = 150
+    @AppStorage("showTitles")         var showTitles: Bool = true
+    @AppStorage("enableSpotifyPanel") var enableSpotifyPanel: Bool = true
 
     var showDelay: Duration { .milliseconds(showDelayMs) }
 }
