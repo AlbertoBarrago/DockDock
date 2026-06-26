@@ -1,0 +1,13 @@
+# Swift / SPM
+.build/
+.DS_Store
+
+# Xcode derived data e user state
+.swiftpm/xcode/package.xcworkspace/xcuserdata/
+.swiftpm/xcode/xcuserdata/
+
+# App bundle (built locally, non va in repo)
+*.app
+
+# Credenziali e config locali
+CLAUDE.local.md
