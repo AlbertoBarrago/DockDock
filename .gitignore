@@ -2,9 +2,10 @@
 .build/
 .DS_Store
 
-# Xcode derived data e user state
-.swiftpm/xcode/package.xcworkspace/xcuserdata/
+# Xcode derived data, user state e file auto-generati
+.swiftpm/xcode/package.xcworkspace/
 .swiftpm/xcode/xcuserdata/
+.swiftpm/xcode/xcshareddata/
 
 # App bundle (built locally, non va in repo)
 *.app
