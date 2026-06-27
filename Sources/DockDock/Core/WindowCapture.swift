@@ -18,7 +18,10 @@ enum WindowCapture {
     private static func captureWithSCKit(pid: pid_t) async -> [WindowInfo] {
         let content: SCShareableContent
         do {
-            content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+            // excludingDesktopWindows: true — avoids Finder's Desktop layer appearing
+            // as a capturable window. onScreenWindowsOnly: false — keeps minimized
+            // windows in the list so they appear in the panel (but without a thumbnail).
+            content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: false)
         } catch {
             log("WindowCapture: SCKit threw — Screen Recording TCC denied (\(error.localizedDescription))")
             return []
@@ -30,6 +33,11 @@ enum WindowCapture {
 
         let scWindows = content.windows.filter { w in
             guard w.frame.width > 50, w.frame.height > 50 else { return false }
+            // Exclude negative-layer system windows (menu bar extra windows, etc.).
+            guard w.windowLayer >= 0 else { return false }
+            // Internal helper/renderer windows (Electron, Firefox content procs) are
+            // off-screen and have no title. Real minimized windows keep their title.
+            if !w.isOnScreen, w.title?.isEmpty ?? true { return false }
             if let bid = bundleID {
                 return w.owningApplication?.bundleIdentifier == bid
             }
@@ -48,20 +56,24 @@ enum WindowCapture {
 
     @available(macOS 14.2, *)
     private static func screenshotWindow(_ w: SCWindow, pid: pid_t) async -> WindowInfo? {
-        let filter = SCContentFilter(desktopIndependentWindow: w)
-        let cfg = SCStreamConfiguration()
-        let scale: CGFloat = 0.5
-        cfg.width  = max(1, Int(w.frame.width  * scale))
-        cfg.height = max(1, Int(w.frame.height * scale))
-        cfg.showsCursor = false
-        let thumb = try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: cfg)
+        var thumb: CGImage?
+        // Minimized windows (isOnScreen == false) can't be screenshotted.
+        if w.isOnScreen {
+            let filter = SCContentFilter(desktopIndependentWindow: w)
+            let cfg = SCStreamConfiguration()
+            let scale: CGFloat = 0.5
+            cfg.width  = max(1, Int(w.frame.width  * scale))
+            cfg.height = max(1, Int(w.frame.height * scale))
+            cfg.showsCursor = false
+            thumb = try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: cfg)
+        }
         return WindowInfo(
             id: CGWindowID(w.windowID),
             ownerPID: w.owningApplication?.processID ?? pid,
             title: w.title ?? "",
             bounds: w.frame,
             thumbnail: thumb,
-            isMinimized: false
+            isMinimized: !w.isOnScreen
         )
     }
 

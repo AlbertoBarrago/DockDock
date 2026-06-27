@@ -4,7 +4,7 @@
 
 - [ ] **Spotify: controlli (play/pause/next/prev) restituiscono -1743** — Automation TCC non concessa per Spotify. L'utente deve concederla manualmente in Impostazioni di Sistema → Privacy → Automazione. Valutare se reinserire il pulsante "Grant Automation" in Settings (era stato rimosso).
 - [ ] **Screen Recording thumbnails** — SCKit restituisce 0 finestre anche dopo grant. Richiede re-grant da Settings → Screen Recording dopo ogni rebuild; investigare se c'è un bug con il bundle ID durante lo sviluppo
-- [ ] **Finder: anteprime non appaiono** — probabile causa: finestre minimizzate escluse da `.optionOnScreenOnly`; fix deployato (usato `.optionAll`) ma da verificare; se persiste, indagare se DockObserver rileva correttamente l'icona Finder nell'AX tree
+- [x] **Finder: anteprime non appaiono** — fix verificato: SCKit con `onScreenWindowsOnly: false` e legacy con `.optionAll` mostrano correttamente 2-4 finestre Finder
 
 ## Migliorie UX
 
