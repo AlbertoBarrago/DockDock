@@ -61,9 +61,9 @@ final class DockObserver: ObservableObject {
             return
         }
 
-        // Fast path: if a panel is showing but the mouse is clearly away from
-        // the Dock area, dismiss immediately without doing any AX lookup.
-        if hoveredApp != nil && !isNearDock(location) {
+        // Fast path: dismiss immediately only when the mouse is clearly away from
+        // both the Dock zone and the panel (with a 30px grace buffer around the panel).
+        if hoveredApp != nil && !isNearDock(location) && !isNearPanel(location) {
             dismissImmediately()
             return
         }
@@ -130,6 +130,13 @@ final class DockObserver: ObservableObject {
         guard let screen = screenContaining(point) else { return false }
         let full = screen.frame, visible = screen.visibleFrame
         return visible.minY == full.minY && visible.minX == full.minX && visible.maxX == full.maxX
+    }
+
+    /// True when the cursor is within 30px of the visible panel — prevents immediate
+    /// dismiss when the mouse briefly exits the panel boundary on the way to/from the Dock.
+    private func isNearPanel(_ point: NSPoint) -> Bool {
+        guard keepAliveRect != .zero else { return false }
+        return keepAliveRect.insetBy(dx: -30, dy: -30).contains(point)
     }
 
     /// True when the cursor could plausibly be over or near the Dock.

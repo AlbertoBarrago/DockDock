@@ -65,12 +65,12 @@ final class SpotifyController: ObservableObject {
         }
         if playerState == .notRunning { playerState = .stopped }
 
-        // Show loading spinner while we wait for the AppleScript fetch.
-        // Only enter loading state if we don't already have track info from notifications.
-        if track == nil { isLoadingInitialState = true }
+        // Distributed notifications + the always-running position timer keep state current
+        // between hovers. Only do the expensive AppleScript fetch on the very first appearance
+        // (track == nil), not on every re-hover.
+        guard track == nil else { return }
 
-        // Fetch initial state on the main actor — TCC token for AppleScript only propagates
-        // correctly on the main thread on macOS 15+. Sleep briefly so the panel renders first.
+        isLoadingInitialState = true
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(150))
             self?.fetchCurrentState()
@@ -129,7 +129,8 @@ final class SpotifyController: ObservableObject {
     }
 
     func stopRefreshing() {
-        stopPositionTimer()
+        // Intentionally keep the position timer running so the progress bar stays
+        // current while the panel is hidden — avoids a visible jump on reopen.
     }
 
     // MARK: - Controls (AppleScript; silently fail if Automation denied)

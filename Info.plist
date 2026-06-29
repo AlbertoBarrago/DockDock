@@ -22,5 +22,7 @@
     <string>DockDock needs accessibility access to detect which app icon you're hovering in the Dock and to manage windows.</string>
     <key>NSScreenCaptureDescription</key>
     <string>DockDock needs screen recording access to generate window previews.</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>DockDock needs permission to control Spotify for playback controls and to read the current track.</string>
 </dict>
 </plist>

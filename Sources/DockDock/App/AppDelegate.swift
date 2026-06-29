@@ -125,6 +125,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 previewPanel.show(app: app, windows: [], dockIconFrame: dockObserver.hoveredIconFrame)
             }
             .store(in: &cancellables)
+
+        // Resize the Finder/AllWindows panel when the async window fetch completes.
+        Publishers.CombineLatest(AllWindowsModel.shared.$isLoading, AllWindowsModel.shared.$groups)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _, _ in
+                guard let self,
+                      let app = dockObserver.hoveredApp,
+                      app.bundleIdentifier == "com.apple.finder",
+                      previewPanel.isVisible
+                else { return }
+                previewPanel.show(app: app, windows: [], dockIconFrame: dockObserver.hoveredIconFrame)
+            }
+            .store(in: &cancellables)
     }
 
     // MARK: - About

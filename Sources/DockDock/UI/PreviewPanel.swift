@@ -26,16 +26,18 @@ final class PreviewPanel: NSPanel {
 
     func show(app: NSRunningApplication, windows: [WindowInfo], dockIconFrame: CGRect) {
         let isSpotify = app.bundleIdentifier == "com.spotify.client"
+        let isFinder  = app.bundleIdentifier == "com.apple.finder"
 
         // Don't recreate the view hierarchy when the same app is already showing.
-        // Special views (Spotify) own their data source and must not be torn down
-        // on every windows update that CombineLatest triggers.
+        // Spotify and AllWindows (Finder) own their data and must not be torn down
+        // on every CombineLatest update.
+        let isSpecial = isSpotify || isFinder
         let sameApp = app.bundleIdentifier == currentBundleID && isVisible
         if !sameApp {
             currentBundleID = app.bundleIdentifier
             let view = AnyView(content(for: app, windows: windows))
             contentView = NSHostingView(rootView: view)
-        } else if !isSpotify {
+        } else if !isSpecial {
             // For regular apps, always refresh content so window thumbnails update.
             let view = AnyView(content(for: app, windows: windows))
             contentView = NSHostingView(rootView: view)
@@ -46,6 +48,8 @@ final class PreviewPanel: NSPanel {
             size = SpotifyController.shared.track != nil
                 ? CGSize(width: 260, height: 370)
                 : CGSize(width: 260, height: 72)
+        } else if isFinder {
+            size = AllWindowsModel.shared.panelSize
         } else {
             size = contentView?.fittingSize ?? CGSize(width: 260, height: 180)
         }
@@ -78,9 +82,9 @@ final class PreviewPanel: NSPanel {
 
     @ViewBuilder
     private func content(for app: NSRunningApplication, windows: [WindowInfo]) -> some View {
-        // app is guaranteed to be in NSWorkspace.runningApplications (DockObserver matched it),
-        // so checking app.bundleIdentifier + the settings toggle is enough — no extra isRunning call.
-        if app.bundleIdentifier == "com.spotify.client" && AppSettings.shared.enableSpotifyPanel {
+        if app.bundleIdentifier == "com.apple.finder" {
+            AllWindowsView()
+        } else if app.bundleIdentifier == "com.spotify.client" && AppSettings.shared.enableSpotifyPanel {
             SpotifyView()
         } else {
             PreviewGridView(app: app, windows: windows)

@@ -61,6 +61,8 @@ struct SpotifyView: View {
             }
         }
         .frame(width: 236, height: 236)
+        .onTapGesture { activateSpotify() }
+        .help("Click to open Spotify")
     }
 
     // MARK: - Track info
@@ -76,6 +78,7 @@ struct SpotifyView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
+            .onTapGesture { activateSpotify() }
             Spacer()
             // Spotify green dot — playing indicator
             Circle()
@@ -172,6 +175,12 @@ struct SpotifyView: View {
     }
 
     // MARK: - Helpers
+
+    private func activateSpotify() {
+        NSWorkspace.shared.runningApplications
+            .first { $0.bundleIdentifier == "com.spotify.client" }?
+            .activate(options: .activateIgnoringOtherApps)
+    }
 
     private var progress: CGFloat {
         guard let t = spotify.track, t.durationMs > 0 else { return 0 }

@@ -1,3 +1,4 @@
+import ApplicationServices
 import CoreGraphics
 import Foundation
 import ScreenCaptureKit
@@ -5,39 +6,82 @@ import ScreenCaptureKit
 enum WindowCapture {
     static func windows(for pid: pid_t) async -> [WindowInfo] {
         if #available(macOS 14.2, *) {
-            let result = await captureWithSCKit(pid: pid)
-            if !result.isEmpty { return result }
-            log("WindowCapture: SCKit returned 0 for pid=\(pid) — trying legacy fallback")
+            // nil = SCKit threw (e.g. Screen Recording denied) → try legacy
+            // [] = SCKit succeeded but AX confirmed no real windows → authoritative empty
+            if let result = await captureWithSCKit(pid: pid) { return result }
+            log("WindowCapture: SCKit failed for pid=\(pid) — trying legacy fallback")
         }
         return captureLegacy(pid: pid)
     }
 
+    // MARK: - Accessibility ground truth
+
+    private struct AXWindowEntry {
+        let title: String
+        let isMinimized: Bool
+    }
+
+    /// Returns the windows AX considers user-facing for `pid`.
+    /// Returns nil when AX is unavailable (no Accessibility permission or unsupported app),
+    /// so callers can fall back to heuristic filtering instead of treating nil as "no windows".
+    private static func axWindows(for pid: pid_t) -> [AXWindowEntry]? {
+        let axApp = AXUIElementCreateApplication(pid)
+        var ref: AnyObject?
+        guard AXUIElementCopyAttributeValue(axApp, kAXWindowsAttribute as CFString, &ref) == .success,
+              let axWins = ref as? [AXUIElement]
+        else { return nil }
+
+        return axWins.compactMap { win -> AXWindowEntry? in
+            var titleRef: AnyObject?
+            guard AXUIElementCopyAttributeValue(win, kAXTitleAttribute as CFString, &titleRef) == .success,
+                  let title = titleRef as? String, !title.isEmpty
+            else { return nil }
+
+            var minimizedRef: AnyObject?
+            AXUIElementCopyAttributeValue(win, kAXMinimizedAttribute as CFString, &minimizedRef)
+            return AXWindowEntry(title: title, isMinimized: (minimizedRef as? Bool) ?? false)
+        }
+    }
+
     // MARK: - ScreenCaptureKit (macOS 14.2+)
 
+    /// Returns nil when SCKit itself fails (permission denied) so the caller can fall back to legacy.
+    /// Returns an empty array when SCKit succeeds but the app has no real user windows.
     @available(macOS 14.2, *)
-    private static func captureWithSCKit(pid: pid_t) async -> [WindowInfo] {
+    private static func captureWithSCKit(pid: pid_t) async -> [WindowInfo]? {
         let content: SCShareableContent
         do {
-            // excludingDesktopWindows: true — avoids Finder's Desktop layer appearing
-            // as a capturable window. onScreenWindowsOnly: false — keeps minimized
-            // windows in the list so they appear in the panel (but without a thumbnail).
+            // excludingDesktopWindows: true — avoids Finder's Desktop layer.
+            // onScreenWindowsOnly: false — keeps minimized windows for the panel.
             content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: false)
         } catch {
             log("WindowCapture: SCKit threw — Screen Recording TCC denied (\(error.localizedDescription))")
-            return []
+            return nil
         }
 
-        // Multi-process apps (Firefox, Chrome, Electron) own windows under a
-        // different PID than the main app process — match by bundle ID instead.
         let bundleID = NSRunningApplication(processIdentifier: pid)?.bundleIdentifier
+
+        // AX is the authoritative list of real user windows.
+        // - nil: AX unavailable → fall back to title heuristic
+        // - []: AX available, app has no windows → return empty authoritatively
+        let axEntries = axWindows(for: pid)
+        let axByTitle: [String: Bool]? = axEntries.map { entries in
+            Dictionary(entries.map { ($0.title, $0.isMinimized) }, uniquingKeysWith: { first, _ in first })
+        }
 
         let scWindows = content.windows.filter { w in
             guard w.frame.width > 50, w.frame.height > 50 else { return false }
-            // Exclude negative-layer system windows (menu bar extra windows, etc.).
             guard w.windowLayer >= 0 else { return false }
-            // Internal helper/renderer windows (Electron, Firefox content procs) are
-            // off-screen and have no title. Real minimized windows keep their title.
-            if !w.isOnScreen, w.title?.isEmpty ?? true { return false }
+
+            if let lookup = axByTitle {
+                // AX available: only include windows AX considers real.
+                guard let title = w.title, !title.isEmpty, lookup[title] != nil else { return false }
+            } else {
+                // AX unavailable: exclude off-screen windows without a title
+                // (background/utility windows that are never real user windows).
+                if !w.isOnScreen, w.title?.isEmpty ?? true { return false }
+            }
+
             if let bid = bundleID {
                 return w.owningApplication?.bundleIdentifier == bid
             }
@@ -47,7 +91,12 @@ enum WindowCapture {
         log("WindowCapture: SCKit total=\(content.windows.count) matched=\(scWindows.count) for '\(bundleID ?? String(pid))'")
 
         return await withTaskGroup(of: WindowInfo?.self) { group in
-            for w in scWindows { group.addTask { await screenshotWindow(w, pid: pid) } }
+            for w in scWindows {
+                // Use AX's minimized state when available — it's more accurate than
+                // isOnScreen (which also catches invisible utility/background windows).
+                let axMinimized = axByTitle?[w.title ?? ""]
+                group.addTask { await screenshotWindow(w, pid: pid, isMinimizedOverride: axMinimized) }
+            }
             var out: [WindowInfo] = []
             for await i in group { if let i { out.append(i) } }
             return out
@@ -55,10 +104,10 @@ enum WindowCapture {
     }
 
     @available(macOS 14.2, *)
-    private static func screenshotWindow(_ w: SCWindow, pid: pid_t) async -> WindowInfo? {
+    private static func screenshotWindow(_ w: SCWindow, pid: pid_t, isMinimizedOverride: Bool? = nil) async -> WindowInfo? {
+        let isMinimized = isMinimizedOverride ?? !w.isOnScreen
         var thumb: CGImage?
-        // Minimized windows (isOnScreen == false) can't be screenshotted.
-        if w.isOnScreen {
+        if !isMinimized && w.isOnScreen {
             let filter = SCContentFilter(desktopIndependentWindow: w)
             let cfg = SCStreamConfiguration()
             let scale: CGFloat = 0.5
@@ -73,16 +122,13 @@ enum WindowCapture {
             title: w.title ?? "",
             bounds: w.frame,
             thumbnail: thumb,
-            isMinimized: !w.isOnScreen
+            isMinimized: isMinimized
         )
     }
 
     // MARK: - Legacy CGWindowList fallback
 
     private static func captureLegacy(pid: pid_t) -> [WindowInfo] {
-        // Use optionAll (not optionOnScreenOnly) so minimized windows and windows
-        // on other Mission Control spaces are included. We filter by PID so the
-        // broader query doesn't cause performance issues.
         guard let list = CGWindowListCopyWindowInfo(
             [.optionAll, .excludeDesktopElements], kCGNullWindowID
         ) as? [[CFString: Any]] else {
@@ -92,6 +138,11 @@ enum WindowCapture {
 
         let pidEntries = list.filter { ($0[kCGWindowOwnerPID] as? pid_t) == pid }
         log("WindowCapture: legacy pid=\(pid) raw entries=\(pidEntries.count)")
+
+        let axEntries = axWindows(for: pid)
+        let axByTitle: [String: Bool]? = axEntries.map { entries in
+            Dictionary(entries.map { ($0.title, $0.isMinimized) }, uniquingKeysWith: { first, _ in first })
+        }
 
         let screenRecording = CGPreflightScreenCaptureAccess()
 
@@ -106,17 +157,24 @@ enum WindowCapture {
                                 width: dict["Width"] ?? 0, height: dict["Height"] ?? 0)
             guard bounds.width > 50, bounds.height > 50 else { return nil }
 
+            let title = (info[kCGWindowName] as? String) ?? ""
             let isOnScreen = (info[kCGWindowIsOnscreen] as? Bool) ?? true
 
-            // CGWindowListCreateImage returns a blank opaque image (not nil) without Screen Recording.
-            // Only attempt capture for on-screen windows; minimized windows can't be captured anyway.
-            let thumb: CGImage? = isOnScreen && screenRecording
+            if let lookup = axByTitle {
+                guard !title.isEmpty, lookup[title] != nil else { return nil }
+            } else {
+                // Without AX, exclude on-screen windows without a title — they're
+                // background/system windows that produce misleading screenshots.
+                if isOnScreen && title.isEmpty { return nil }
+            }
+
+            let isMinimized = axByTitle?[title] ?? !isOnScreen
+            let thumb: CGImage? = !isMinimized && isOnScreen && screenRecording
                 ? CGWindowListCreateImage(.null, .optionIncludingWindow, windowID, [.nominalResolution, .boundsIgnoreFraming])
                 : nil
             return WindowInfo(
                 id: windowID, ownerPID: pid,
-                title: (info[kCGWindowName] as? String) ?? "",
-                bounds: bounds, thumbnail: thumb, isMinimized: !isOnScreen
+                title: title, bounds: bounds, thumbnail: thumb, isMinimized: isMinimized
             )
         }
     }
