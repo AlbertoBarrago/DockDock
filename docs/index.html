@@ -1,0 +1,930 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DockDock — Window previews for macOS</title>
+<meta name="description" content="Hover any Dock icon. See every open window as a live thumbnail. Native macOS, zero dependencies.">
+<style>
+/* ── Tokens ──────────────────────────────────────────────── */
+:root {
+  --bg:         #09090f;
+  --bg-2:       #111118;
+  --bg-3:       #1a1a26;
+  --border:     rgba(255,255,255,0.07);
+  --border-hi:  rgba(255,255,255,0.13);
+  --accent:     #2ddb7e;
+  --accent-dim: rgba(45,219,126,0.13);
+  --t1:         #ebebf2;
+  --t2:         #8b8ba0;
+  --t3:         #44445a;
+  --r:          16px;
+  --ease:       200ms ease;
+}
+
+/* ── Reset ───────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body {
+  background: var(--bg);
+  color: var(--t1);
+  font-family: system-ui, -apple-system, "SF Pro Text", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  line-height: 1.65;
+  overflow-x: hidden;
+}
+img { display: block; max-width: 100%; }
+a { color: inherit; }
+code {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.85em;
+  color: var(--accent);
+  background: var(--accent-dim);
+  padding: 1px 6px;
+  border-radius: 5px;
+}
+
+/* ── Layout helpers ──────────────────────────────────────── */
+.wrap {
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+/* ── Nav ─────────────────────────────────────────────────── */
+nav {
+  position: sticky; top: 0; z-index: 100;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  background: rgba(9,9,15,0.8);
+  border-bottom: 1px solid var(--border);
+}
+.nav-inner {
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 0 24px;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.nav-brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  text-decoration: none;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--t1);
+}
+.nav-brand img { width: 26px; height: 26px; border-radius: 6px; }
+.nav-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.nav-link {
+  font-size: 13.5px;
+  color: var(--t2);
+  text-decoration: none;
+  padding: 6px 12px;
+  border-radius: 8px;
+  transition: color var(--ease), background var(--ease);
+}
+.nav-link:hover { color: var(--t1); background: var(--bg-2); }
+.nav-btn {
+  font-size: 13px;
+  font-weight: 600;
+  color: #000;
+  background: var(--accent);
+  text-decoration: none;
+  padding: 7px 15px;
+  border-radius: 100px;
+  transition: opacity var(--ease);
+  letter-spacing: -0.01em;
+}
+.nav-btn:hover { opacity: 0.85; }
+
+/* ── Hero ────────────────────────────────────────────────── */
+.hero {
+  padding: 72px 0 0;
+  text-align: center;
+}
+.hero-icon {
+  width: 96px;
+  height: 96px;
+  margin: 0 auto 22px;
+  border-radius: 22px;
+  filter: drop-shadow(0 12px 48px rgba(45,219,126,0.3));
+}
+.eyebrow {
+  display: inline-block;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 16px;
+}
+h1 {
+  font-size: clamp(2.8rem, 7.5vw, 4.5rem);
+  font-weight: 600;
+  letter-spacing: -0.04em;
+  line-height: 1.04;
+  text-wrap: balance;
+  margin-bottom: 20px;
+}
+.hero-sub {
+  font-size: clamp(1rem, 2.2vw, 1.2rem);
+  color: var(--t2);
+  max-width: 440px;
+  margin: 0 auto 36px;
+  line-height: 1.65;
+}
+.cta-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: var(--accent);
+  color: #000;
+  font-size: 15px;
+  font-weight: 600;
+  padding: 11px 22px;
+  border-radius: 100px;
+  text-decoration: none;
+  letter-spacing: -0.01em;
+  transition: opacity var(--ease), transform var(--ease);
+}
+.btn-primary:hover { opacity: 0.88; transform: translateY(-1px); }
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: var(--bg-2);
+  border: 1px solid var(--border-hi);
+  color: var(--t1);
+  font-size: 15px;
+  font-weight: 500;
+  padding: 11px 22px;
+  border-radius: 100px;
+  text-decoration: none;
+  letter-spacing: -0.01em;
+  transition: background var(--ease);
+}
+.btn-ghost:hover { background: var(--bg-3); }
+.hero-fine {
+  font-size: 12.5px;
+  color: var(--t3);
+  letter-spacing: 0.02em;
+  margin-bottom: 56px;
+}
+
+/* ── Demo ────────────────────────────────────────────────── */
+.demo-outer {
+  max-width: 740px;
+  margin: 0 auto;
+  border-radius: 20px 20px 0 0;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-bottom: none;
+  overflow: hidden;
+  padding: 36px 20px 0;
+  min-height: 300px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  position: relative;
+}
+.demo-outer::before {
+  content: '';
+  position: absolute;
+  top: -1px; left: 50%; transform: translateX(-50%);
+  width: 55%;
+  height: 160px;
+  background: radial-gradient(ellipse at 50% 0%, rgba(45,219,126,0.09) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+/* Preview panel (floats above dock icon) */
+.demo-panel {
+  position: absolute;
+  bottom: 72px;
+  left: 50%;
+  transform: translateX(-50%) translateY(10px);
+  width: 288px;
+  background: rgba(24,24,36,0.9);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 14px;
+  padding: 8px;
+  opacity: 0;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+  pointer-events: none;
+  z-index: 10;
+}
+.demo-panel.on {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+.demo-thumbs {
+  display: grid;
+  gap: 6px;
+}
+.demo-thumb {
+  background: #1c1c2c;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.06);
+  height: 68px;
+}
+.demo-thumb-bar {
+  height: 17px;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  gap: 4px;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+.demo-thumb-bar b {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  font-style: normal;
+}
+.demo-thumb-body {
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.demo-thumb-line {
+  height: 4px;
+  background: rgba(255,255,255,0.07);
+  border-radius: 2px;
+}
+.demo-thumb-label {
+  font-size: 8.5px;
+  color: var(--t2);
+  text-align: center;
+  padding: 2px 6px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Dock strip */
+.demo-dock {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 10px;
+  padding: 10px 20px;
+  background: rgba(255,255,255,0.035);
+  border-radius: 18px 18px 0 0;
+  border: 1px solid var(--border);
+  border-bottom: none;
+  width: 100%;
+  max-width: 440px;
+  position: relative;
+  z-index: 2;
+}
+.demo-ico {
+  width: 52px;
+  height: 52px;
+  border-radius: 13px;
+  flex-shrink: 0;
+  position: relative;
+  transition: transform 0.25s cubic-bezier(0.34,1.56,0.64,1);
+  cursor: default;
+}
+.demo-ico.active {
+  transform: scale(1.18) translateY(-5px);
+}
+.demo-ico::after {
+  content: '';
+  position: absolute;
+  bottom: -7px; left: 50%;
+  transform: translateX(-50%);
+  width: 4px; height: 4px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.35);
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.demo-ico.active::after { opacity: 1; }
+
+/* App icon colors in demo */
+.ico-blue   { background: linear-gradient(150deg, #2a5be8 0%, #5c8af5 100%); }
+.ico-dark   { background: linear-gradient(150deg, #1c1c2e 0%, #2a2a42 100%); border: 1px solid rgba(255,255,255,0.1); }
+.ico-red    { background: linear-gradient(150deg, #c02f2f 0%, #e05252 100%); }
+.ico-green  { background: linear-gradient(150deg, #1b8f52 0%, #2ddb7e 100%); }
+.ico-amber  { background: linear-gradient(150deg, #b87400 0%, #f0a000 100%); }
+
+/* Thin inner detail for the dark icon */
+.ico-dark::before {
+  content: '';
+  position: absolute;
+  inset: 10px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 5px;
+}
+
+/* ── Section shell ───────────────────────────────────────── */
+section { padding: 80px 0; }
+section + section { border-top: 1px solid var(--border); }
+.sec-eyebrow {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--t3);
+  margin-bottom: 10px;
+}
+h2 {
+  font-size: clamp(1.7rem, 3.5vw, 2.4rem);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1.12;
+  text-wrap: balance;
+  margin-bottom: 44px;
+  max-width: 500px;
+}
+
+/* ── Features ────────────────────────────────────────────── */
+.feat-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  overflow: hidden;
+}
+.feat-card {
+  background: var(--bg);
+  padding: 28px 28px 32px;
+  transition: background var(--ease);
+}
+.feat-card:hover { background: var(--bg-2); }
+.feat-badge {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 18px;
+}
+.feat-badge svg { opacity: 0.75; }
+.feat-title {
+  font-size: 15.5px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin-bottom: 7px;
+  color: var(--t1);
+}
+.feat-desc {
+  font-size: 14px;
+  color: var(--t2);
+  line-height: 1.65;
+}
+
+/* ── Install ─────────────────────────────────────────────── */
+.install-grid {
+  display: grid;
+  grid-template-columns: 1fr 1.05fr;
+  gap: 52px;
+  align-items: start;
+}
+.install-prose {
+  font-size: 15px;
+  color: var(--t2);
+  line-height: 1.7;
+  margin-bottom: 24px;
+}
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-bottom: 24px;
+}
+.step {
+  display: flex;
+  gap: 12px;
+  font-size: 13.5px;
+  color: var(--t2);
+  line-height: 1.6;
+}
+.step-n {
+  width: 22px; height: 22px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--bg-3);
+  border: 1px solid var(--border-hi);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--t2);
+  font-variant-numeric: tabular-nums;
+}
+.install-note {
+  font-size: 12.5px;
+  color: var(--t3);
+  line-height: 1.65;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+.install-note a {
+  color: var(--t2);
+  text-underline-offset: 3px;
+}
+
+/* Terminal */
+.terminal {
+  background: var(--bg-2);
+  border: 1px solid var(--border-hi);
+  border-radius: 13px;
+  overflow: hidden;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 13px;
+}
+.term-bar {
+  height: 36px;
+  padding: 0 14px;
+  background: rgba(255,255,255,0.02);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.term-dot {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.d-r { background: #ff5f57; }
+.d-y { background: #febc2e; }
+.d-g { background: #28c840; }
+.term-title {
+  flex: 1;
+  text-align: center;
+  font-size: 11px;
+  color: var(--t3);
+  font-family: system-ui, -apple-system, sans-serif;
+  letter-spacing: 0.03em;
+}
+.term-body {
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  line-height: 1.6;
+}
+.tl { display: flex; gap: 10px; }
+.tl-prompt { color: var(--accent); user-select: none; flex-shrink: 0; }
+.tl-cmd    { color: var(--t1); }
+.tl-comment { color: var(--t3); padding-top: 6px; }
+
+/* ── Requirements ────────────────────────────────────────── */
+.req-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+.req-card {
+  padding: 20px 22px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 13px;
+}
+.req-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--t3);
+  margin-bottom: 6px;
+}
+.req-value {
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  color: var(--t1);
+}
+.req-sub {
+  font-size: 12px;
+  color: var(--t2);
+  margin-top: 2px;
+  line-height: 1.5;
+}
+
+/* ── Footer ──────────────────────────────────────────────── */
+footer {
+  border-top: 1px solid var(--border);
+  padding: 36px 0;
+}
+.foot-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+.foot-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  color: var(--t2);
+  text-decoration: none;
+}
+.foot-brand img { width: 20px; height: 20px; border-radius: 5px; }
+.foot-links {
+  display: flex;
+  gap: 20px;
+}
+.foot-links a {
+  font-size: 13px;
+  color: var(--t3);
+  text-decoration: none;
+  transition: color var(--ease);
+}
+.foot-links a:hover { color: var(--t2); }
+
+/* ── Focus & motion ──────────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: 0ms !important; animation-duration: 0ms !important; }
+}
+
+/* ── Responsive ──────────────────────────────────────────── */
+@media (max-width: 680px) {
+  .nav-link { display: none; }
+  .feat-grid { grid-template-columns: 1fr; }
+  .install-grid { grid-template-columns: 1fr; }
+  .req-grid { grid-template-columns: 1fr; }
+  .demo-outer { padding: 28px 14px 0; }
+  .demo-panel { width: 240px; }
+  .demo-ico { width: 44px; height: 44px; }
+}
+</style>
+</head>
+<body>
+
+<!-- ── Nav ────────────────────────────────────────────────── -->
+<nav>
+  <div class="nav-inner">
+    <a href="#" class="nav-brand">
+      <img src="icon.png" alt="DockDock">
+      DockDock
+    </a>
+    <div class="nav-right">
+      <a href="#features" class="nav-link">Features</a>
+      <a href="#install" class="nav-link">Install</a>
+      <a href="https://github.com/AlbertoBarrago/DockDock" target="_blank" rel="noopener" class="nav-link">GitHub</a>
+      <a href="#install" class="nav-btn">Install free</a>
+    </div>
+  </div>
+</nav>
+
+<main>
+
+<!-- ── Hero ───────────────────────────────────────────────── -->
+<section class="hero">
+  <div class="wrap">
+    <img src="icon.png" alt="DockDock" class="hero-icon">
+    <div class="eyebrow">macOS 14 Sonoma+</div>
+    <h1>Window previews,<br>right in your Dock.</h1>
+    <p class="hero-sub">Hover any icon. See every open window as a live thumbnail — focus, minimize or close without switching apps.</p>
+    <div class="cta-row">
+      <a href="#install" class="btn-primary">
+        <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+          <path d="M7.5 1v8.5M7.5 9.5L5 7M7.5 9.5L10 7M1.5 12.5h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        Install free
+      </a>
+      <a href="https://github.com/AlbertoBarrago/DockDock" target="_blank" rel="noopener" class="btn-ghost">
+        <svg width="15" height="15" viewBox="0 0 15 15" fill="currentColor">
+          <path d="M7.5 0C3.36 0 0 3.36 0 7.5c0 3.32 2.15 6.13 5.13 7.12.37.07.51-.16.51-.36v-1.4c-2.08.45-2.52-.99-2.52-.99-.34-.86-.83-1.09-.83-1.09-.68-.46.05-.45.05-.45.75.05 1.15.77 1.15.77.67 1.14 1.75.81 2.18.62.07-.48.26-.81.47-1C4.37 11.6 2.7 11 2.7 7.83c0-.82.29-1.49.77-2.02-.08-.19-.33-.96.07-2 0 0 .63-.2 2.06.77A7.17 7.17 0 017.5 4.3c.64 0 1.28.08 1.88.26 1.43-.97 2.06-.77 2.06-.77.41 1.04.15 1.81.07 2 .48.53.77 1.2.77 2.02 0 3.18-1.94 3.88-3.78 4.09.3.26.56.76.56 1.52v2.25c0 .2.14.43.52.36A7.5 7.5 0 0015 7.5C15 3.36 11.64 0 7.5 0z"/>
+        </svg>
+        View on GitHub
+      </a>
+    </div>
+    <p class="hero-fine">Free &amp; open source · MIT · Built with Swift + AppKit</p>
+
+    <!-- ── Live demo ─────────────────────────────────────── -->
+    <div class="demo-outer">
+
+      <!-- Floating preview panel -->
+      <div class="demo-panel" id="jsPanel">
+        <div class="demo-thumbs" id="jsThumbs"></div>
+      </div>
+
+      <!-- Dock strip -->
+      <div class="demo-dock">
+        <div class="demo-ico ico-blue"  id="jsIco0"></div>
+        <div class="demo-ico ico-dark"  id="jsIco1"></div>
+        <div class="demo-ico ico-red"   id="jsIco2"></div>
+        <div class="demo-ico ico-green" id="jsIco3"></div>
+        <div class="demo-ico ico-amber" id="jsIco4"></div>
+      </div>
+    </div>
+    <!-- /demo-outer intentionally has no bottom border — blends into page -->
+
+  </div>
+</section>
+
+<!-- ── Features ───────────────────────────────────────────── -->
+<section id="features">
+  <div class="wrap">
+    <div class="sec-eyebrow">Features</div>
+    <h2>Everything you need. Nothing you don't.</h2>
+    <div class="feat-grid">
+
+      <div class="feat-card">
+        <div class="feat-badge">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+            <rect x="1" y="1" width="7" height="7" rx="2" stroke="#ebebf2" stroke-width="1.4"/>
+            <rect x="10" y="1" width="7" height="7" rx="2" stroke="#ebebf2" stroke-width="1.4"/>
+            <rect x="1" y="10" width="7" height="7" rx="2" stroke="#ebebf2" stroke-width="1.4"/>
+            <rect x="10" y="10" width="7" height="7" rx="2" stroke="#ebebf2" stroke-width="1.4"/>
+          </svg>
+        </div>
+        <div class="feat-title">Live window thumbnails</div>
+        <div class="feat-desc">Real-time captures via ScreenCaptureKit — every thumbnail shows the window's actual current state, not a stale screenshot.</div>
+      </div>
+
+      <div class="feat-card">
+        <div class="feat-badge">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+            <path d="M1 13V9a8 8 0 0116 0v4" stroke="#ebebf2" stroke-width="1.4" stroke-linecap="round"/>
+            <path d="M1 13a2 2 0 004 0V11a2 2 0 00-4 0v2zM13 13a2 2 0 004 0V11a2 2 0 00-4 0v2z" stroke="#ebebf2" stroke-width="1.4"/>
+          </svg>
+        </div>
+        <div class="feat-title">Spotify panel</div>
+        <div class="feat-desc">Album art, track info, progress bar and full playback controls — all surfaced at the Dock, without switching to the app.</div>
+      </div>
+
+      <div class="feat-card">
+        <div class="feat-badge">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+            <rect x="2" y="2" width="14" height="14" rx="3" stroke="#ebebf2" stroke-width="1.4"/>
+            <path d="M9 6v6M6 9h6" stroke="#ebebf2" stroke-width="1.4" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <div class="feat-title">Not running? One tap.</div>
+        <div class="feat-desc">For dormant Dock icons, DockDock shows a placeholder with a direct Open button. Launch any app without leaving the Dock.</div>
+      </div>
+
+      <div class="feat-card">
+        <div class="feat-badge">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+            <path d="M9 1.5A7.5 7.5 0 119 16.5 7.5 7.5 0 019 1.5z" stroke="#ebebf2" stroke-width="1.4"/>
+            <path d="M6 9l2 2 4-4" stroke="#ebebf2" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <div class="feat-title">Zero footprint, native only</div>
+        <div class="feat-desc">Lives in the menu bar, no Dock icon. Built entirely with public Apple APIs — Accessibility, ScreenCaptureKit, AppKit. No private entitlements.</div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ── Install ─────────────────────────────────────────────── -->
+<section id="install">
+  <div class="wrap">
+    <div class="install-grid">
+
+      <div>
+        <div class="sec-eyebrow">Install</div>
+        <h2>Two commands.<br>You're done.</h2>
+        <p class="install-prose">Clone the repo and run the build script. It compiles a signed release binary and installs it to <code>/Applications</code> — under a minute from zero.</p>
+        <div class="steps">
+          <div class="step">
+            <div class="step-n">1</div>
+            <span>On first launch, grant <strong>Accessibility</strong> when macOS prompts. Required to read Dock icon positions and manage windows.</span>
+          </div>
+          <div class="step">
+            <div class="step-n">2</div>
+            <span>Grant <strong>Screen Recording</strong> in System Settings → Privacy &amp; Security for live window thumbnails.</span>
+          </div>
+          <div class="step">
+            <div class="step-n">3</div>
+            <span>DockDock sits in the menu bar — no Dock icon, no background windows. The preview panel appears only when you hover.</span>
+          </div>
+        </div>
+        <p class="install-note">
+          Requires Xcode Command Line Tools (<code>xcode-select --install</code>) or Xcode.
+          After each new build, macOS may ask to re-grant Screen Recording — the permission is tied to the binary hash.
+          <br><br>
+          <a href="https://github.com/AlbertoBarrago/DockDock/blob/main/README.md" target="_blank" rel="noopener">Full documentation on GitHub →</a>
+        </p>
+      </div>
+
+      <div class="terminal" role="region" aria-label="Install commands">
+        <div class="term-bar">
+          <div class="term-dot d-r"></div>
+          <div class="term-dot d-y"></div>
+          <div class="term-dot d-g"></div>
+          <div class="term-title">Terminal</div>
+        </div>
+        <div class="term-body">
+          <div class="tl">
+            <span class="tl-prompt">$</span>
+            <span class="tl-cmd">git clone https://github.com/<br>&nbsp;&nbsp;&nbsp;&nbsp;AlbertoBarrago/DockDock.git</span>
+          </div>
+          <div class="tl">
+            <span class="tl-prompt">$</span>
+            <span class="tl-cmd">cd DockDock</span>
+          </div>
+          <div class="tl">
+            <span class="tl-prompt">$</span>
+            <span class="tl-cmd">bash bin/make-app.sh</span>
+          </div>
+          <div class="tl-comment"># → /Applications/DockDock.app ✓</div>
+          <div class="tl">
+            <span class="tl-prompt">$</span>
+            <span class="tl-cmd">open /Applications/DockDock.app</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ── Requirements ───────────────────────────────────────── -->
+<section>
+  <div class="wrap">
+    <div class="req-grid">
+      <div class="req-card">
+        <div class="req-label">System</div>
+        <div class="req-value">macOS 14 Sonoma</div>
+        <div class="req-sub">or later (macOS 15 Sequoia supported)</div>
+      </div>
+      <div class="req-card">
+        <div class="req-label">Accessibility</div>
+        <div class="req-value">Required</div>
+        <div class="req-sub">Dock icon detection &amp; window management</div>
+      </div>
+      <div class="req-card">
+        <div class="req-label">Screen Recording</div>
+        <div class="req-value">Optional</div>
+        <div class="req-sub">Enables live window thumbnails via ScreenCaptureKit</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<!-- ── Footer ─────────────────────────────────────────────── -->
+<footer>
+  <div class="wrap">
+    <div class="foot-inner">
+      <a href="#" class="foot-brand">
+        <img src="icon.png" alt="">
+        DockDock — MIT License
+      </a>
+      <div class="foot-links">
+        <a href="https://github.com/AlbertoBarrago/DockDock" target="_blank" rel="noopener">Source</a>
+        <a href="https://github.com/AlbertoBarrago/DockDock/issues" target="_blank" rel="noopener">Issues</a>
+        <a href="https://github.com/AlbertoBarrago" target="_blank" rel="noopener">@AlbertoBarrago</a>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<!-- ── Demo animation ─────────────────────────────────────── -->
+<script>
+(function () {
+  var panel  = document.getElementById('jsPanel');
+  var thumbs = document.getElementById('jsThumbs');
+  var icons  = [0,1,2,3,4].map(function(i){ return document.getElementById('jsIco'+i); });
+
+  // Each entry: thumbnail window specs
+  var apps = [
+    { cols: 2, windows: [
+      { bar: '#2a5be8', label: 'main.swift — DockDock', lines: [1,.75,.9,.5,.7] },
+      { bar: '#2a5be8', label: 'PreviewPanel.swift',    lines: [1,.6,.8,.45] }
+    ]},
+    { cols: 1, windows: [
+      { bar: '#2a2a3e', label: 'Untitled document',     lines: [1,.8,1,.55,.85,.6] }
+    ]},
+    { cols: 2, windows: [
+      { bar: '#c02f2f', label: 'Dashboard',             lines: [1,.5,.8,.65] },
+      { bar: '#c02f2f', label: 'Settings',              lines: [1,.7,.4] },
+      { bar: '#c02f2f', label: 'Analytics',             lines: [1,.6,.9,.5] },
+      { bar: '#c02f2f', label: 'Users',                 lines: [1,.75] }
+    ]},
+    { cols: 2, windows: [
+      { bar: '#1b8f52', label: 'zsh — ~/Code/DockDock', lines: [1,.55,.7,.9,.4] },
+      { bar: '#1b8f52', label: 'zsh — ~',               lines: [1,.8,.5] }
+    ]},
+    { cols: 2, windows: [
+      { bar: '#b87400', label: 'Inbox',                 lines: [1,.6,.85,.45,.7] },
+      { bar: '#b87400', label: 'Compose',               lines: [1,.9,.6,.5] }
+    ]}
+  ];
+
+  function buildThumbs(app) {
+    var count = Math.min(app.windows.length, 4);
+    thumbs.style.gridTemplateColumns = app.cols === 1 ? '1fr' : '1fr 1fr';
+    thumbs.innerHTML = '';
+    app.windows.slice(0, 4).forEach(function(w) {
+      var d  = document.createElement('div'); d.className = 'demo-thumb';
+      var b  = document.createElement('div'); b.className = 'demo-thumb-bar';
+      b.innerHTML = '<b class="d-r"></b><b class="d-y"></b><b class="d-g"></b>';
+      b.style.background = w.bar + '22';
+      var bd = document.createElement('div'); bd.className = 'demo-thumb-body';
+      w.lines.forEach(function(f){
+        var l = document.createElement('div'); l.className = 'demo-thumb-line';
+        l.style.width = (f*100)+'%'; bd.appendChild(l);
+      });
+      var lbl = document.createElement('div'); lbl.className = 'demo-thumb-label';
+      lbl.textContent = w.label;
+      d.appendChild(b); d.appendChild(bd); d.appendChild(lbl);
+      thumbs.appendChild(d);
+    });
+  }
+
+  var current  = -1;
+  var visible  = false;
+  var seq      = [0,2,4,1,3];
+  var seqIdx   = 0;
+  var timerId  = null;
+
+  function showApp(idx) {
+    icons.forEach(function(ic){ ic.classList.remove('active'); });
+    current = idx;
+    buildThumbs(apps[idx]);
+
+    // position panel centered above the active icon
+    var ico  = icons[idx];
+    var pr   = panel.parentElement.getBoundingClientRect();
+    var ir   = ico.getBoundingClientRect();
+    var cx   = ir.left + ir.width / 2 - pr.left;
+    panel.style.left = cx + 'px';
+
+    ico.classList.add('active');
+    requestAnimationFrame(function(){
+      panel.classList.add('on');
+      visible = true;
+    });
+  }
+
+  function hide() {
+    panel.classList.remove('on');
+    icons.forEach(function(ic){ ic.classList.remove('active'); });
+    visible = false;
+  }
+
+  function tick() {
+    if (!visible) {
+      showApp(seq[seqIdx % seq.length]);
+      seqIdx++;
+      timerId = setTimeout(tick, 3000);
+    } else {
+      hide();
+      timerId = setTimeout(tick, 600);
+    }
+  }
+
+  // Start
+  timerId = setTimeout(tick, 900);
+
+  // Pause when tab is hidden
+  document.addEventListener('visibilitychange', function(){
+    if (document.hidden) {
+      clearTimeout(timerId);
+      hide();
+    } else {
+      timerId = setTimeout(tick, 600);
+    }
+  });
+}());
+</script>
+
+</body>
+</html>
