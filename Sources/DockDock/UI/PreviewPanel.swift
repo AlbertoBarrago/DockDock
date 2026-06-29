@@ -58,13 +58,22 @@ final class PreviewPanel: NSPanel {
         setFrame(frame, display: false)
         onFrameChanged?(frame)
 
+        // Re-assert z-order immediately on every frame change (catches the Finder panel
+        // resize from loading → full size, during which the Dock may redraw its tooltip).
+        orderFrontRegardless()
+
         if !isVisible {
             alphaValue = 0
-            orderFront(nil)
         }
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0.15
             animator().alphaValue = 1
+        }
+
+        // Second pass at 600ms covers the case where the Dock tooltip appears after us.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+            guard let self, self.isVisible else { return }
+            self.orderFrontRegardless()
         }
     }
 
@@ -99,7 +108,7 @@ final class PreviewPanel: NSPanel {
                            ?? NSScreen.main
         else { return CGRect(origin: .zero, size: size) }
 
-        let gap: CGFloat = 6
+        let gap: CGFloat = -8
         var x = iconFrame.midX - size.width / 2
         var y = iconFrame.maxY + gap
 
