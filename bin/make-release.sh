@@ -1,6 +1,9 @@
 #!/bin/bash
 set -e
 
+# Navigate to the project root regardless of where the script is invoked from.
+cd "$(dirname "$0")/.."
+
 BUNDLE_NAME="DockDock"
 APP="/Applications/${BUNDLE_NAME}.app"
 CONTENTS="${APP}/Contents"

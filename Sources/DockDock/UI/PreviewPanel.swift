@@ -49,12 +49,35 @@ final class PreviewPanel: NSPanel {
                 ? CGSize(width: 260, height: 370)
                 : CGSize(width: 260, height: 72)
         } else if isFinder {
-            size = AllWindowsModel.shared.panelSize
+            let panelSz = AllWindowsModel.shared.panelSize
+            // Width pre-computed from window count; height from SwiftUI's actual layout so
+            // there is no dead transparent space between the material and the Dock.
+            let fittingH = contentView?.fittingSize.height ?? 0
+            size = CGSize(width: panelSz.width, height: fittingH > 80 ? fittingH : panelSz.height)
         } else {
             size = contentView?.fittingSize ?? CGSize(width: 260, height: 180)
         }
-        let frame = position(size: size, above: dockIconFrame)
+        present(size: size, above: dockIconFrame)
+    }
 
+    func showNotRunning(info: NotRunningAppInfo, dockIconFrame: CGRect) {
+        let id = info.bundleID ?? info.name ?? ""
+        if id != currentBundleID || !isVisible {
+            currentBundleID = id
+            contentView = NSHostingView(rootView: AnyView(NotRunningAppView(info: info)))
+        }
+        let size = contentView?.fittingSize ?? CGSize(width: 220, height: 100)
+        present(size: size, above: dockIconFrame)
+    }
+
+    // MARK: - Shared presentation
+
+    private func present(size: CGSize, above dockIconFrame: CGRect) {
+        // Spotify uses gap=6 (taller panel looks best floating a bit above the icon).
+        // All other panels use gap=0: the frame edge sits exactly at the icon top,
+        // leaving no space for the native Dock tooltip to peek through.
+        let gap: CGFloat = currentBundleID == "com.spotify.client" ? 6 : 0
+        let frame = position(size: size, above: dockIconFrame, gap: gap)
         setFrame(frame, display: false)
         onFrameChanged?(frame)
 
@@ -103,12 +126,11 @@ final class PreviewPanel: NSPanel {
     // MARK: - Positioning
 
     /// Positions the panel centered above `iconFrame`, clamped to the visible screen area.
-    private func position(size: CGSize, above iconFrame: CGRect) -> CGRect {
+    private func position(size: CGSize, above iconFrame: CGRect, gap: CGFloat) -> CGRect {
         guard let screen = NSScreen.screens.first(where: { $0.frame.contains(iconFrame.origin) })
                            ?? NSScreen.main
         else { return CGRect(origin: .zero, size: size) }
 
-        let gap: CGFloat = -8
         var x = iconFrame.midX - size.width / 2
         var y = iconFrame.maxY + gap
 

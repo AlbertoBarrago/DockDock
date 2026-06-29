@@ -87,10 +87,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func startObserving() {
         dockObserver.start()
 
-        // Hide when no app is hovered.
-        dockObserver.$hoveredApp
+        // Hide when neither a running app nor a not-running placeholder is hovered.
+        Publishers.CombineLatest(dockObserver.$hoveredApp, dockObserver.$notRunningInfo)
             .receive(on: DispatchQueue.main)
-            .filter { $0 == nil }
+            .filter { app, info in app == nil && info == nil }
             .sink { [weak self] _ in
                 guard let self else { return }
                 dockObserver.keepAliveRect = .zero
@@ -109,6 +109,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let self else { return }
                 log("AppDelegate: panel '\(app.localizedName ?? "?")' windows=\(windows.count)")
                 previewPanel.show(app: app, windows: windows, dockIconFrame: dockObserver.hoveredIconFrame)
+            }
+            .store(in: &cancellables)
+
+        // Show a "not running" placeholder when hovering a dormant Dock icon.
+        dockObserver.$notRunningInfo
+            .receive(on: DispatchQueue.main)
+            .compactMap { $0 }
+            .sink { [weak self] info in
+                guard let self else { return }
+                log("AppDelegate: not-running panel '\(info.name ?? "?")'")
+                previewPanel.showNotRunning(info: info, dockIconFrame: dockObserver.hoveredIconFrame)
             }
             .store(in: &cancellables)
 

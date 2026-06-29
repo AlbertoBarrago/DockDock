@@ -1,6 +1,8 @@
 #!/bin/bash
 # Rilancia DockDock da /Applications e mostra i log in tempo reale.
-# Uso: bash run-with-logs.sh
+# Uso: bash bin/run-with-logs.sh
+
+cd "$(dirname "$0")/.."
 
 pkill -x DockDock 2>/dev/null
 sleep 0.5

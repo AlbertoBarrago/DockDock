@@ -2,10 +2,29 @@ import AppKit
 import ApplicationServices
 import Foundation
 
+/// Info about a Dock icon whose app is not currently running.
+struct NotRunningAppInfo: Equatable {
+    let bundleID: String?
+    let name: String?
+    let icon: NSImage?
+    let url: URL?
+
+    static func == (lhs: NotRunningAppInfo, rhs: NotRunningAppInfo) -> Bool {
+        lhs.bundleID == rhs.bundleID && lhs.url == rhs.url
+    }
+}
+
+/// Result of a Dock icon hit-test — either a live app or a dormant one.
+private enum DockHoverItem {
+    case running(app: NSRunningApplication, frame: CGRect)
+    case notRunning(info: NotRunningAppInfo, frame: CGRect)
+}
+
 /// Watches global mouse movement and fires when the cursor enters/leaves a Dock icon.
 @MainActor
 final class DockObserver: ObservableObject {
     @Published private(set) var hoveredApp: NSRunningApplication?
+    @Published private(set) var notRunningInfo: NotRunningAppInfo?
     @Published private(set) var windows: [WindowInfo] = []
     @Published private(set) var hoveredIconFrame: CGRect = .zero
 
@@ -13,6 +32,7 @@ final class DockObserver: ObservableObject {
 
     private var globalMonitor: Any?
     private var rightClickMonitor: Any?
+    private var appLaunchObserver: Any?
     private var debounceTask: Task<Void, Never>?
     private var dismissTask: Task<Void, Never>?
     private let settings = AppSettings.shared
@@ -33,6 +53,17 @@ final class DockObserver: ObservableObject {
         rightClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: .rightMouseDown) { [weak self] _ in
             Task { @MainActor [weak self] in self?.dismissImmediately() }
         }
+        // When an app launches while its Dock icon is still hovered, transition from
+        // the "not running" placeholder to the real window-preview panel automatically.
+        appLaunchObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didLaunchApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            Task { @MainActor [weak self] in
+                self?.handleAppLaunched(notification)
+            }
+        }
         if globalMonitor == nil {
             log("DockObserver: ⚠️ global monitor is nil — check Accessibility permission")
         } else {
@@ -43,8 +74,12 @@ final class DockObserver: ObservableObject {
     func stop() {
         if let monitor = globalMonitor { NSEvent.removeMonitor(monitor) }
         if let monitor = rightClickMonitor { NSEvent.removeMonitor(monitor) }
+        if let observer = appLaunchObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
+        }
         globalMonitor = nil
         rightClickMonitor = nil
+        appLaunchObserver = nil
         debounceTask?.cancel()
         dismissTask?.cancel()
     }
@@ -61,17 +96,19 @@ final class DockObserver: ObservableObject {
             return
         }
 
+        let panelActive = hoveredApp != nil || notRunningInfo != nil
+
         // Fast path: dismiss immediately only when the mouse is clearly away from
         // both the Dock zone and the panel (with a 30px grace buffer around the panel).
-        if hoveredApp != nil && !isNearDock(location) && !isNearPanel(location) {
+        if panelActive && !isNearDock(location) && !isNearPanel(location) {
             dismissImmediately()
             return
         }
 
         // Skip expensive AX lookup entirely when far from Dock and nothing is showing.
-        if hoveredApp == nil && !isNearDock(location) { return }
+        if !panelActive && !isNearDock(location) { return }
 
-        guard let (app, frame) = findDockIcon(at: location) else {
+        guard let hoverItem = findDockIcon(at: location) else {
             scheduleDismiss()
             return
         }
@@ -79,28 +116,65 @@ final class DockObserver: ObservableObject {
         dismissTask?.cancel()
         dismissTask = nil
 
-        if app.bundleIdentifier == hoveredApp?.bundleIdentifier { return }
+        switch hoverItem {
+        case .running(let app, let frame):
+            if app.bundleIdentifier == hoveredApp?.bundleIdentifier { return }
+            log("DockObserver: hovered running '\(app.localizedName ?? "?")' frame=\(frame)")
+            debounceTask?.cancel()
+            debounceTask = Task {
+                let delay = isDockAutoHidden()
+                    ? max(settings.showDelay, .milliseconds(400))
+                    : settings.showDelay
+                try? await Task.sleep(for: delay)
+                guard !Task.isCancelled else { return }
+                notRunningInfo = nil
+                hoveredIconFrame = frame
+                hoveredApp = app
+                windows = await WindowCapture.windows(for: app.processIdentifier)
+                log("DockObserver: captured \(windows.count) window(s) for '\(app.localizedName ?? "?")'")
+            }
 
-        log("DockObserver: hovered '\(app.localizedName ?? "?")' frame=\(frame)")
+        case .notRunning(let info, let frame):
+            if info == notRunningInfo { return }
+            log("DockObserver: hovered not-running '\(info.name ?? "?")' frame=\(frame)")
+            debounceTask?.cancel()
+            debounceTask = Task {
+                let delay = isDockAutoHidden()
+                    ? max(settings.showDelay, .milliseconds(400))
+                    : settings.showDelay
+                try? await Task.sleep(for: delay)
+                guard !Task.isCancelled else { return }
+                hoveredApp = nil
+                windows = []
+                hoveredIconFrame = frame
+                notRunningInfo = info
+            }
+        }
+    }
+
+    // MARK: - App launch observer
+
+    private func handleAppLaunched(_ notification: Notification) {
+        guard let info = notRunningInfo,
+              let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+              app.bundleIdentifier == info.bundleID || app.localizedName == info.name
+        else { return }
+
+        log("DockObserver: '\(app.localizedName ?? "?")' launched while hovered — refreshing panel")
+        let frame = hoveredIconFrame
         debounceTask?.cancel()
         debounceTask = Task {
-            // When the Dock is auto-hidden it animates in (~300ms). Wait at least 400ms
-            // so the panel doesn't appear before the Dock has fully slid into view.
-            let delay = isDockAutoHidden()
-                ? max(settings.showDelay, .milliseconds(400))
-                : settings.showDelay
-            try? await Task.sleep(for: delay)
-            guard !Task.isCancelled else { return }
+            notRunningInfo = nil
             hoveredIconFrame = frame
             hoveredApp = app
             windows = await WindowCapture.windows(for: app.processIdentifier)
-            log("DockObserver: captured \(windows.count) window(s) for '\(app.localizedName ?? "?")'")
+            log("DockObserver: captured \(windows.count) window(s) post-launch for '\(app.localizedName ?? "?")'")
         }
     }
 
     private func scheduleDismiss() {
         debounceTask?.cancel()
-        guard hoveredApp != nil else { return }
+        guard hoveredApp != nil || notRunningInfo != nil else { return }
         // Don't reset an already-pending dismiss — let it fire naturally.
         guard dismissTask == nil else { return }
         dismissTask = Task {
@@ -119,6 +193,7 @@ final class DockObserver: ObservableObject {
 
     private func clearHover() {
         hoveredApp = nil
+        notRunningInfo = nil
         windows = []
         hoveredIconFrame = .zero
         dismissTask = nil
@@ -163,7 +238,7 @@ final class DockObserver: ObservableObject {
 
     /// Primary strategy: enumerate AX children of the Dock process directly.
     /// This is reliable on macOS 14/15 where the hit-test approach can fail.
-    private func findDockIcon(at point: NSPoint) -> (NSRunningApplication, CGRect)? {
+    private func findDockIcon(at point: NSPoint) -> DockHoverItem? {
         guard let dockPID else { return nil }
 
         let screenHeight = NSScreen.screens.first?.frame.height ?? 0
@@ -177,8 +252,6 @@ final class DockObserver: ObservableObject {
             return nil
         }
 
-        // diagLog("DockObserver: Dock has \(topChildren.count) AX children")
-
         for container in topChildren {
             var itemsRef: AnyObject?
             guard AXUIElementCopyAttributeValue(container, kAXChildrenAttribute as CFString, &itemsRef) == .success,
@@ -189,7 +262,7 @@ final class DockObserver: ObservableObject {
                 let frame = appKitFrame(of: item, screenHeight: screenHeight)
                 guard frame != .zero, frame.contains(point) else { continue }
 
-                if let result = appForDockItem(item, frame: frame) {
+                if let result = hoverItemForDockIcon(item, frame: frame) {
                     return result
                 }
             }
@@ -198,13 +271,15 @@ final class DockObserver: ObservableObject {
         return nil
     }
 
-    private func appForDockItem(_ item: AXUIElement, frame: CGRect) -> (NSRunningApplication, CGRect)? {
+    private func hoverItemForDockIcon(_ item: AXUIElement, frame: CGRect) -> DockHoverItem? {
         var bundleID: String?
+        var appURL: URL?
 
         // Primary: AXURL gives the bundle path → bundle identifier.
         var urlValue: AnyObject?
         if AXUIElementCopyAttributeValue(item, "AXURL" as CFString, &urlValue) == .success,
            let url = urlValue as? URL {
+            appURL = url
             bundleID = Bundle(url: url)?.bundleIdentifier
         }
 
@@ -221,14 +296,18 @@ final class DockObserver: ObservableObject {
         // Match by bundle ID first (most reliable), then by display name.
         if let bid = bundleID,
            let app = running.first(where: { $0.bundleIdentifier == bid }) {
-            return (app, frame)
+            return .running(app: app, frame: frame)
         }
         if let name = title,
            let app = running.first(where: { $0.localizedName == name }) {
-            return (app, frame)
+            return .running(app: app, frame: frame)
         }
 
-        return nil
+        // App is in the Dock but not currently running — build a placeholder.
+        guard bundleID != nil || title != nil else { return nil }
+        let icon: NSImage? = appURL.flatMap { NSWorkspace.shared.icon(forFile: $0.path) }
+        let info = NotRunningAppInfo(bundleID: bundleID, name: title, icon: icon, url: appURL)
+        return .notRunning(info: info, frame: frame)
     }
 
     // MARK: - AX helpers
