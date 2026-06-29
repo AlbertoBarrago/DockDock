@@ -30,14 +30,35 @@ enum PreviewSize: String, CaseIterable, Identifiable {
     }
 }
 
+enum HoverSpeed: String, CaseIterable, Identifiable {
+    case fast, normal, deliberate
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .fast:       "Fast"
+        case .normal:     "Normal"
+        case .deliberate: "Deliberate"
+        }
+    }
+
+    var milliseconds: Double {
+        switch self {
+        case .fast:       100
+        case .normal:     150
+        case .deliberate: 250
+        }
+    }
+}
+
 final class AppSettings: ObservableObject {
     static let shared = AppSettings()
     private init() {}
 
     @AppStorage("previewSize")        var previewSize: PreviewSize = .medium
-    @AppStorage("showDelayMs")        var showDelayMs: Double = 150
+    @AppStorage("hoverSpeed")         var hoverSpeed: HoverSpeed = .normal
     @AppStorage("showTitles")         var showTitles: Bool = true
     @AppStorage("enableSpotifyPanel") var enableSpotifyPanel: Bool = true
 
-    var showDelay: Duration { .milliseconds(showDelayMs) }
+    var showDelay: Duration { .milliseconds(hoverSpeed.milliseconds) }
 }

@@ -1,4 +1,4 @@
-import ApplicationServices
+import AppKit
 import SwiftUI
 
 struct SettingsView: View {
@@ -7,64 +7,76 @@ struct SettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            settingsSection("Preview") {
-                row {
-                    Text("Size").foregroundStyle(.secondary)
-                    Spacer()
+            settingsGroup("Preview") {
+                settingsRow(icon: "square.grid.2x2.fill", color: .blue, label: "Thumbnail size") {
                     Picker("", selection: $settings.previewSize) {
                         ForEach(PreviewSize.allCases) { Text($0.label).tag($0) }
                     }
                     .pickerStyle(.segmented)
-                    .frame(width: 180)
+                    .frame(width: 165)
                     .labelsHidden()
                 }
-                divider()
-                row {
-                    Toggle("Show window titles", isOn: $settings.showTitles)
+                insetDivider()
+                settingsRow(icon: "textformat", color: .indigo, label: "Window titles") {
+                    Toggle("", isOn: $settings.showTitles).labelsHidden()
                 }
             }
 
-            settingsSection("Behavior") {
-                row {
-                    Text("Hover delay").foregroundStyle(.secondary)
-                    Spacer()
-                    Slider(value: $settings.showDelayMs, in: 50...500, step: 25)
-                        .frame(width: 120)
-                    Text("\(Int(settings.showDelayMs)) ms")
-                        .foregroundStyle(.secondary)
-                        .font(.system(.caption, design: .monospaced))
-                        .frame(width: 44, alignment: .trailing)
+            settingsGroup("Behavior") {
+                settingsRow(icon: "timer", color: .orange, label: "Hover speed") {
+                    Picker("", selection: $settings.hoverSpeed) {
+                        ForEach(HoverSpeed.allCases) { Text($0.label).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 165)
+                    .labelsHidden()
                 }
-                divider()
-                row {
-                    Toggle("Spotify panel", isOn: $settings.enableSpotifyPanel)
+                insetDivider()
+                settingsRow(icon: "waveform", color: .green, label: "Spotify panel") {
+                    Toggle("", isOn: $settings.enableSpotifyPanel).labelsHidden()
                 }
             }
 
-            settingsSection("Permissions") {
+            settingsGroup("Permissions") {
                 permissionRow(
-                    name: "Accessibility",
+                    icon: "accessibility",
+                    color: permissions.hasAccessibility ? .green : .orange,
+                    label: "Accessibility",
+                    note: "Required — detects Dock icons and manages windows",
                     granted: permissions.hasAccessibility,
                     pane: "Accessibility"
                 )
-                divider()
+                insetDivider()
                 permissionRow(
-                    name: "Screen Recording",
+                    icon: "video.fill",
+                    color: permissions.hasScreenRecording ? .green : .gray,
+                    label: "Screen Recording",
+                    note: "Optional — enables window thumbnails",
                     granted: permissions.hasScreenRecording,
                     pane: "ScreenCapture"
                 )
             }
 
-}
-        .frame(width: 340)
+            // Footer
+            HStack {
+                Text("DockDock \(appVersion)")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.quaternary)
+                Spacer()
+            }
+            .padding(.horizontal, 4)
+            .padding(.top, 2)
+            .padding(.bottom, 4)
+        }
+        .padding(16)
+        .frame(width: 360)
         .background(Color(.windowBackgroundColor))
         .onAppear { permissions.checkAll() }
     }
 
     // MARK: - Components
 
-    @ViewBuilder
-    private func settingsSection<Content: View>(
+    private func settingsGroup<Content: View>(
         _ title: String,
         @ViewBuilder content: () -> Content
     ) -> some View {
@@ -72,49 +84,86 @@ struct SettingsView: View {
             Text(title.uppercased())
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(.tertiary)
-                .padding(.horizontal, 20)
-                .padding(.top, 20)
+                .tracking(0.4)
                 .padding(.bottom, 6)
 
-            VStack(spacing: 0) {
-                content()
-            }
-            .background(Color(.controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
-            .padding(.horizontal, 16)
+            VStack(spacing: 0) { content() }
+                .background(Color(.controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
         }
-        .padding(.bottom, 4)
+        .padding(.bottom, 16)
     }
 
-    @ViewBuilder
-    private func row<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        HStack { content() }
-            .padding(.horizontal, 14)
-            .frame(minHeight: 38)
-    }
-
-    private func divider() -> some View {
-        Divider().padding(.leading, 14)
-    }
-
-    @ViewBuilder
-    private func permissionRow(name: String, granted: Bool, pane: String) -> some View {
-        row {
-            Circle()
-                .fill(granted ? Color.green : Color.orange)
-                .frame(width: 8, height: 8)
-            Text(name)
+    private func settingsRow<Control: View>(
+        icon: String,
+        color: Color,
+        label: String,
+        @ViewBuilder control: () -> Control
+    ) -> some View {
+        HStack(spacing: 10) {
+            iconBadge(systemName: icon, color: color)
+            Text(label)
+                .font(.system(size: 13))
             Spacer()
-            Button(granted ? "Granted ✓" : "Grant Access") {
-                openPrivacyPane(pane)
-            }
-            .buttonStyle(.borderless)
-            .foregroundStyle(granted ? .secondary : Color.accentColor)
-            .font(.system(size: 12))
+            control()
         }
+        .padding(.horizontal, 12)
+        .frame(minHeight: 42)
+    }
+
+    private func permissionRow(
+        icon: String,
+        color: Color,
+        label: String,
+        note: String,
+        granted: Bool,
+        pane: String
+    ) -> some View {
+        HStack(spacing: 10) {
+            iconBadge(systemName: icon, color: color)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(label)
+                    .font(.system(size: 13))
+                Text(note)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+            }
+            Spacer()
+            if granted {
+                Label("Granted", systemImage: "checkmark.circle.fill")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .labelStyle(.titleAndIcon)
+            } else {
+                Button("Allow") { openPrivacyPane(pane) }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+            }
+        }
+        .padding(.horizontal, 12)
+        .frame(minHeight: 52)
+    }
+
+    private func iconBadge(systemName: String, color: Color) -> some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 7)
+                .fill(color.gradient)
+                .frame(width: 28, height: 28)
+            Image(systemName: systemName)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white)
+        }
+    }
+
+    private func insetDivider() -> some View {
+        Divider().padding(.leading, 50)
     }
 
     private func openPrivacyPane(_ pane: String) {
         let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_\(pane)")!
         NSWorkspace.shared.open(url)
+    }
+
+    private var appVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
     }
 }

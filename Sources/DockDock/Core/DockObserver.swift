@@ -9,8 +9,14 @@ struct NotRunningAppInfo: Equatable {
     let icon: NSImage?
     let url: URL?
 
+    /// Lenient equality: match by bundleID if both have one, then by URL, then by name.
+    /// This handles intermittent AXURL failures where bundleID/url may be nil on some calls
+    /// for the same icon while name (kAXTitle) is always available.
     static func == (lhs: NotRunningAppInfo, rhs: NotRunningAppInfo) -> Bool {
-        lhs.bundleID == rhs.bundleID && lhs.url == rhs.url
+        if let l = lhs.bundleID, let r = rhs.bundleID { return l == r }
+        if let l = lhs.url, let r = rhs.url { return l == r }
+        if let l = lhs.name, let r = rhs.name { return l == r }
+        return false
     }
 }
 
@@ -39,6 +45,17 @@ final class DockObserver: ObservableObject {
 
     // Throttle diagnostic noise — log AX failures at most once per second.
     private var lastDiagLog = Date.distantPast
+
+    // Cache bundle identifiers by app URL to avoid repeated Info.plist reads on every mouse-move.
+    private var bundleIDCache: [URL: String] = [:]
+
+    // Tracks the icon currently being debounced so repeated mouse-move events over the
+    // same icon don't cancel and restart the debounce timer before the panel appears.
+    // debouncingID = bundleID when AXURL works; falls back to name when it fails.
+    // debouncingName is always the AX title — used as a secondary key when AXURL fails
+    // intermittently so the same icon doesn't restart the debounce mid-wait.
+    private var debouncingID: String?
+    private var debouncingName: String?
 
     private let dockPID: pid_t? = NSRunningApplication
         .runningApplications(withBundleIdentifier: "com.apple.dock")
@@ -105,8 +122,11 @@ final class DockObserver: ObservableObject {
             return
         }
 
-        // Skip expensive AX lookup entirely when far from Dock and nothing is showing.
-        if !panelActive && !isNearDock(location) { return }
+        // Far from Dock — cancel any in-progress debounce, bail when nothing is showing.
+        if !isNearDock(location) {
+            if debouncingID != nil { debounceTask?.cancel(); debouncingID = nil }
+            if !panelActive { return }
+        }
 
         guard let hoverItem = findDockIcon(at: location) else {
             scheduleDismiss()
@@ -118,8 +138,13 @@ final class DockObserver: ObservableObject {
 
         switch hoverItem {
         case .running(let app, let frame):
-            if app.bundleIdentifier == hoveredApp?.bundleIdentifier { return }
+            let runID = app.bundleIdentifier ?? ""
+            // Already showing or already debouncing for this exact app → nothing to do.
+            if runID == hoveredApp?.bundleIdentifier { return }
+            if !runID.isEmpty && runID == debouncingID { return }
             log("DockObserver: hovered running '\(app.localizedName ?? "?")' frame=\(frame)")
+            debouncingID = runID
+            debouncingName = nil
             debounceTask?.cancel()
             debounceTask = Task {
                 let delay = isDockAutoHidden()
@@ -127,16 +152,27 @@ final class DockObserver: ObservableObject {
                     : settings.showDelay
                 try? await Task.sleep(for: delay)
                 guard !Task.isCancelled else { return }
-                notRunningInfo = nil
+                debouncingID = nil
+                // Set hoveredApp BEFORE clearing notRunningInfo so the hide subscription
+                // never sees (nil, nil) — which would flash the panel away.
                 hoveredIconFrame = frame
                 hoveredApp = app
+                notRunningInfo = nil
                 windows = await WindowCapture.windows(for: app.processIdentifier)
                 log("DockObserver: captured \(windows.count) window(s) for '\(app.localizedName ?? "?")'")
             }
 
         case .notRunning(let info, let frame):
+            let notRunID = info.bundleID ?? info.name ?? ""
+            // Already showing or already debouncing for this exact app → nothing to do.
+            // Check by lenient Equatable (bundleID / url / name) then by debouncing keys.
             if info == notRunningInfo { return }
+            if !notRunID.isEmpty && notRunID == debouncingID { return }
+            // Secondary check: if AXURL failed this call (bundleID=nil), match by name alone.
+            if let n = info.name, !n.isEmpty, n == debouncingName { return }
             log("DockObserver: hovered not-running '\(info.name ?? "?")' frame=\(frame)")
+            debouncingID = notRunID
+            debouncingName = info.name
             debounceTask?.cancel()
             debounceTask = Task {
                 let delay = isDockAutoHidden()
@@ -144,10 +180,20 @@ final class DockObserver: ObservableObject {
                     : settings.showDelay
                 try? await Task.sleep(for: delay)
                 guard !Task.isCancelled else { return }
+                // Load the icon once, after the debounce delay, rather than on every mouse-move.
+                let icon: NSImage? = info.url.flatMap { NSWorkspace.shared.icon(forFile: $0.path) }
+                    ?? info.bundleID.flatMap { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }
+                        .flatMap { NSWorkspace.shared.icon(forFile: $0.path) }
+                let resolved = NotRunningAppInfo(bundleID: info.bundleID, name: info.name,
+                                                icon: icon, url: info.url)
+                debouncingID = nil
+                debouncingName = nil
+                // Set notRunningInfo BEFORE clearing hoveredApp so the CombineLatest hide
+                // subscription never sees (nil, nil) — which would flash the panel away.
+                hoveredIconFrame = frame
+                notRunningInfo = resolved
                 hoveredApp = nil
                 windows = []
-                hoveredIconFrame = frame
-                notRunningInfo = info
             }
         }
     }
@@ -163,18 +209,22 @@ final class DockObserver: ObservableObject {
         log("DockObserver: '\(app.localizedName ?? "?")' launched while hovered — refreshing panel")
         let frame = hoveredIconFrame
         debounceTask?.cancel()
+        debouncingID = nil
+        debouncingName = nil
         debounceTask = Task {
-            notRunningInfo = nil
             hoveredIconFrame = frame
             hoveredApp = app
+            notRunningInfo = nil
             windows = await WindowCapture.windows(for: app.processIdentifier)
             log("DockObserver: captured \(windows.count) window(s) post-launch for '\(app.localizedName ?? "?")'")
         }
     }
 
     private func scheduleDismiss() {
-        debounceTask?.cancel()
-        guard hoveredApp != nil || notRunningInfo != nil else { return }
+        // Start a grace-period timer; clearHover() will cancel the debounce if it fires.
+        // Do NOT cancel the debounce here — a transient AX gap between two icons must not
+        // abort a debounce that was already in progress for the destination icon.
+        guard hoveredApp != nil || notRunningInfo != nil || debouncingID != nil else { return }
         // Don't reset an already-pending dismiss — let it fire naturally.
         guard dismissTask == nil else { return }
         dismissTask = Task {
@@ -185,13 +235,17 @@ final class DockObserver: ObservableObject {
     }
 
     private func dismissImmediately() {
-        debounceTask?.cancel()
         dismissTask?.cancel()
         dismissTask = nil
         clearHover()
     }
 
     private func clearHover() {
+        // Cancelling the debounce here (rather than in scheduleDismiss) means a transient
+        // AX failure mid-transition doesn't abort the show sequence for the next icon.
+        debounceTask?.cancel()
+        debouncingID = nil
+        debouncingName = nil
         hoveredApp = nil
         notRunningInfo = nil
         windows = []
@@ -276,11 +330,16 @@ final class DockObserver: ObservableObject {
         var appURL: URL?
 
         // Primary: AXURL gives the bundle path → bundle identifier.
+        // Bundle ID is cached to avoid repeated Info.plist reads on every mouse-move.
         var urlValue: AnyObject?
         if AXUIElementCopyAttributeValue(item, "AXURL" as CFString, &urlValue) == .success,
            let url = urlValue as? URL {
             appURL = url
-            bundleID = Bundle(url: url)?.bundleIdentifier
+            bundleID = bundleIDCache[url] ?? {
+                let bid = Bundle(url: url)?.bundleIdentifier
+                if let bid { bundleIDCache[url] = bid }
+                return bid
+            }()
         }
 
         // Read the label regardless (useful for logging and fallback).
@@ -303,10 +362,11 @@ final class DockObserver: ObservableObject {
             return .running(app: app, frame: frame)
         }
 
-        // App is in the Dock but not currently running — build a placeholder.
+        // App is in the Dock but not currently running.
+        // Icon is intentionally omitted here — it is loaded once in the debounce task
+        // to avoid a disk/cache hit on every mouse-move event.
         guard bundleID != nil || title != nil else { return nil }
-        let icon: NSImage? = appURL.flatMap { NSWorkspace.shared.icon(forFile: $0.path) }
-        let info = NotRunningAppInfo(bundleID: bundleID, name: title, icon: icon, url: appURL)
+        let info = NotRunningAppInfo(bundleID: bundleID, name: title, icon: nil, url: appURL)
         return .notRunning(info: info, frame: frame)
     }
 

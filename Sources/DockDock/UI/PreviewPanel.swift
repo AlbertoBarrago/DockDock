@@ -64,9 +64,15 @@ final class PreviewPanel: NSPanel {
         let id = info.bundleID ?? info.name ?? ""
         if id != currentBundleID || !isVisible {
             currentBundleID = id
-            contentView = NSHostingView(rootView: AnyView(NotRunningAppView(info: info)))
+            let hosting = NSHostingView(rootView: AnyView(NotRunningAppView(info: info)))
+            contentView = hosting
+            // Force one layout pass so fittingSize is accurate before we position the panel.
+            // Without this, fittingSize can return zero on a freshly-created hosting view,
+            // leading to a wrong frame and a gap where the native Dock tooltip peeks through.
+            hosting.layout()
         }
-        let size = contentView?.fittingSize ?? CGSize(width: 220, height: 100)
+        let raw = contentView?.fittingSize ?? .zero
+        let size = raw.height > 50 ? raw : CGSize(width: 220, height: 96)
         present(size: size, above: dockIconFrame)
     }
 
