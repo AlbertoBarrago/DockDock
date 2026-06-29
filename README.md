@@ -1,24 +1,35 @@
-# DockDock
+<div align="center">
+  <img src="docs/icon.png" width="128" alt="DockDock icon" />
+  <h1>DockDock</h1>
+  <p>Live window previews when you hover over Dock icons — pure Swift, zero dependencies.</p>
 
-A native macOS utility that shows live window previews when you hover over Dock icons — no Electron, no private APIs, pure Swift + AppKit.
+  ![macOS](https://img.shields.io/badge/macOS-14%2B-black?style=flat-square)
+  ![Swift](https://img.shields.io/badge/Swift-5.9-F05138?style=flat-square&logo=swift&logoColor=white)
+  ![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)
+</div>
 
-![macOS](https://img.shields.io/badge/macOS-14%2B-black?style=flat-square)
-![Swift](https://img.shields.io/badge/Swift-5.9-F05138?style=flat-square&logo=swift&logoColor=white)
-![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)
+---
+
+## What it does
+
+Hover over any icon in the Dock and DockDock shows a floating panel with live thumbnails of every open window for that app. Click a thumbnail to bring the window into focus, or use the context menu to minimize or close it.
+
+Special panels are included for **Spotify** (album art, progress bar, playback controls) and **Finder** (all open windows in a mosaic view). For apps that aren't running yet, DockDock shows a lightweight placeholder with a one-click **Open** button.
 
 ## Features
 
-- **Window previews** — hover any Dock icon to see all open windows as thumbnails
-- **Spotify panel** — dedicated player card with album art, progress bar and playback controls
-- **Window actions** — focus, minimize or close any window directly from the preview
-- **Zero footprint** — lives in the menu bar only, no Dock icon
-- **Native only** — built with public Apple APIs (Accessibility, ScreenCaptureKit, AppKit)
+- **Window previews** — hover any Dock icon to see open windows as live thumbnails
+- **Spotify panel** — album art, track info, progress bar and playback controls
+- **All Windows view** — Finder-style mosaic for apps with many open windows
+- **Not-running apps** — placeholder panel with a direct Open button
+- **Window actions** — focus, minimize or close any window from the preview
+- **Zero footprint** — lives in the menu bar, no Dock icon of its own
 
 ## Requirements
 
 - macOS 14 Sonoma or later
-- **Accessibility** permission (required — detects Dock icons and manages windows)
-- **Screen Recording** permission (optional — enables window thumbnails)
+- **Accessibility** permission — required to detect Dock icons and manage windows
+- **Screen Recording** permission — optional, enables live window thumbnails
 
 ## Build & Run
 
@@ -26,21 +37,16 @@ A native macOS utility that shows live window previews when you hover over Dock 
 git clone https://github.com/AlbertoBarrago/DockDock.git
 cd DockDock
 
-# Debug build → /Applications/DockDock.app
-bash make-app.sh
+# Debug build → installs to /Applications/DockDock.app
+bash bin/make-app.sh
 
-# Release build → /Applications/DockDock.app
-bash make-release.sh
+# Release build → installs to /Applications/DockDock.app
+bash bin/make-release.sh
 ```
 
-Or open `Package.swift` in Xcode and press **Cmd+R** — the scheme copies the fresh binary to `/Applications/DockDock.app` automatically before launch.
+Or open `Package.swift` in Xcode and press **Cmd+R**.
 
-### Permissions
-
-On first launch macOS will prompt for **Accessibility** access. Grant it, then relaunch.  
-For window thumbnails, also grant **Screen Recording** in System Settings → Privacy & Security.
-
-> After each new build, re-grant Screen Recording if thumbnails stop working — macOS ties the permission to the binary hash.
+> **Tip:** after each new build, macOS may require you to re-grant Screen Recording in System Settings → Privacy & Security. The permission is tied to the binary hash.
 
 ## Architecture
 
@@ -48,30 +54,32 @@ For window thumbnails, also grant **Screen Recording** in System Settings → Pr
 Sources/DockDock/
 ├── App/
 │   ├── DockDockApp.swift       # @main entry point
-│   └── AppDelegate.swift       # lifecycle, menu bar, Combine bindings
+│   └── AppDelegate.swift       # lifecycle, menu bar, Combine subscriptions
 ├── Core/
-│   ├── DockObserver.swift      # global mouse tracking + AX Dock detection
+│   ├── DockObserver.swift      # global mouse tracking + AX Dock icon detection
 │   ├── WindowCapture.swift     # ScreenCaptureKit (14.2+) with CGWindowList fallback
 │   ├── PermissionManager.swift # Accessibility + Screen Recording gating
 │   └── WindowInfo.swift        # window model
 ├── UI/
-│   ├── PreviewPanel.swift      # floating NSPanel, routing, positioning
+│   ├── PreviewPanel.swift      # floating NSPanel — routing, positioning, animation
 │   ├── PreviewGridView.swift   # thumbnail grid
+│   ├── NotRunningAppView.swift # placeholder for dormant Dock icons
 │   └── ThumbnailView.swift     # single thumbnail + context menu
 ├── Features/
-│   ├── SpotifyController.swift # AppleScript bridge, artwork loading
+│   ├── SpotifyController.swift # AppleScript bridge and artwork loading
 │   └── WindowManager.swift     # focus / minimize / close via AXUIElement
 └── Settings/
-    ├── AppSettings.swift        # @AppStorage preferences
-    └── SettingsView.swift       # settings window
+    ├── AppSettings.swift       # @AppStorage preferences
+    └── SettingsView.swift      # settings window
 ```
 
-**Key design decisions**
+**Notable design decisions**
 
-- AX children enumeration instead of hit-test — more reliable on macOS 14/15
-- Bundle ID matching in SCKit to handle multi-process apps (Firefox, Electron)
-- `guard dismissTask == nil` pattern — prevents dismiss timer reset on rapid mouse events
-- `CombineLatest($hoveredApp, $windows)` — panel refreshes when async capture completes
+- AX children enumeration (not hit-test) — reliable on macOS 14/15 where hit-test misfires
+- Bundle ID matching in SCKit — handles multi-process apps like Firefox and Electron shells
+- `debouncingID` guard — prevents debounce restart on every mouse-move over the same icon
+- `CombineLatest($hoveredApp, $windows)` — panel refreshes automatically when async capture completes
+- Property assignment order in debounce tasks avoids a `(nil, nil)` CombineLatest flash during icon transitions
 - Binary-preserving bundle update — `make-app.sh` never deletes the `.app`, keeping TCC permissions intact
 
 ## License
