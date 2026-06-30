@@ -249,21 +249,11 @@ h1 {
   height: 68px;
 }
 .demo-thumb-bar {
-  height: 17px;
-  display: flex;
-  align-items: center;
-  padding: 0 8px;
-  gap: 4px;
+  height: 10px;
   border-bottom: 1px solid rgba(255,255,255,0.05);
 }
-.demo-thumb-bar b {
-  width: 6px; height: 6px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  font-style: normal;
-}
 .demo-thumb-body {
-  padding: 6px 8px;
+  padding: 8px 8px 6px;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -868,7 +858,6 @@ footer {
     app.windows.slice(0, 4).forEach(function(w) {
       var d  = document.createElement('div'); d.className = 'demo-thumb';
       var b  = document.createElement('div'); b.className = 'demo-thumb-bar';
-      b.innerHTML = '<b class="d-r"></b><b class="d-y"></b><b class="d-g"></b>';
       b.style.background = w.bar + '22';
       var bd = document.createElement('div'); bd.className = 'demo-thumb-body';
       w.lines.forEach(function(f){

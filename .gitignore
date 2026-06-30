@@ -9,6 +9,7 @@
 
 # App bundle (built locally, non va in repo)
 *.app
+*.dmg
 
 # Credenziali e config locali
 CLAUDE.local.md
