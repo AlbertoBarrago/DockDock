@@ -1,7 +1,7 @@
 <div align="center">
   <img src="docs/icon.png" width="128" alt="DockDock icon" />
   <h1>DockDock</h1>
-  <p>Live window previews when you hover over Dock icons — pure Swift, zero dependencies.</p>
+  <p>Live window previews when you hover over Dock icons. Pure Swift, zero dependencies.</p>
 
   ![macOS](https://img.shields.io/badge/macOS-14%2B-black?style=flat-square)
   ![Swift](https://img.shields.io/badge/Swift-5.9-F05138?style=flat-square&logo=swift&logoColor=white)
@@ -22,18 +22,18 @@ Special panels are included for **Spotify** (album art, progress bar, playback c
 
 ## Features
 
-- **Window previews** — hover any Dock icon to see open windows as live thumbnails
-- **Spotify panel** — album art, track info, progress bar and playback controls
-- **All Windows view** — Finder-style mosaic for apps with many open windows
-- **Not-running apps** — placeholder panel with a direct Open button
-- **Window actions** — focus, minimize or close any window from the preview
-- **Zero footprint** — lives in the menu bar, no Dock icon of its own
+- **Window previews:** hover any Dock icon to see open windows as live thumbnails
+- **Spotify panel:** album art, track info, progress bar and playback controls
+- **All Windows view:** Finder-style mosaic for apps with many open windows
+- **Not-running apps:** placeholder panel with a direct Open button
+- **Window actions:** focus, minimize or close any window from the preview
+- **Zero footprint:** lives in the menu bar, no Dock icon of its own
 
 ## Requirements
 
 - macOS 14 Sonoma or later
-- **Accessibility** permission — required to detect Dock icons and manage windows
-- **Screen Recording** permission — optional, enables live window thumbnails
+- **Accessibility** permission: required to detect Dock icons and manage windows
+- **Screen Recording** permission: optional, enables live window thumbnails
 
 ## Build & Run
 
@@ -65,7 +65,7 @@ Sources/DockDock/
 │   ├── PermissionManager.swift # Accessibility + Screen Recording gating
 │   └── WindowInfo.swift        # window model
 ├── UI/
-│   ├── PreviewPanel.swift      # floating NSPanel — routing, positioning, animation
+│   ├── PreviewPanel.swift      # floating NSPanel: routing, positioning, animation
 │   ├── PreviewGridView.swift   # thumbnail grid
 │   ├── NotRunningAppView.swift # placeholder for dormant Dock icons
 │   └── ThumbnailView.swift     # single thumbnail + context menu
@@ -79,12 +79,12 @@ Sources/DockDock/
 
 **Notable design decisions**
 
-- AX children enumeration (not hit-test) — reliable on macOS 14/15 where hit-test misfires
-- Bundle ID matching in SCKit — handles multi-process apps like Firefox and Electron shells
-- `debouncingID` guard — prevents debounce restart on every mouse-move over the same icon
-- `CombineLatest($hoveredApp, $windows)` — panel refreshes automatically when async capture completes
+- AX children enumeration (not hit-test): reliable on macOS 14/15 where hit-test misfires
+- Bundle ID matching in SCKit: handles multi-process apps like Firefox and Electron shells
+- `debouncingID` guard: prevents debounce restart on every mouse-move over the same icon
+- `CombineLatest($hoveredApp, $windows)`: panel refreshes automatically when async capture completes
 - Property assignment order in debounce tasks avoids a `(nil, nil)` CombineLatest flash during icon transitions
-- Binary-preserving bundle update — `make-app.sh` never deletes the `.app`, keeping TCC permissions intact
+- Binary-preserving bundle update: `make-app.sh` never deletes the `.app`, keeping TCC permissions intact
 
 ## License
 
