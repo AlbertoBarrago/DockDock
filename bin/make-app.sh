@@ -1,7 +1,6 @@
 #!/bin/bash
 set -e
 
-# Navigate to the project root regardless of where the script is invoked from.
 cd "$(dirname "$0")/.."
 
 BUNDLE_NAME="DockDock"
@@ -9,7 +8,15 @@ APP="/Applications/${BUNDLE_NAME}.app"
 CONTENTS="${APP}/Contents"
 MACOS="${CONTENTS}/MacOS"
 RESOURCES="${CONTENTS}/Resources"
-CERT="AAEDF6889C6461FDC8B5B9EEBB517897E32B5176"
+
+# Pick the first non-revoked Apple Development cert automatically.
+# Falls back to ad-hoc (-) so the script works without a paid developer account.
+CERT=$(security find-identity -v -p codesigning 2>/dev/null \
+    | awk '/Apple Development/ && !/REVOKED/ { print $2; exit }')
+if [ -z "${CERT}" ]; then
+    CERT="-"
+    echo "⚠️  No valid Apple Development cert found — using ad-hoc signing (local use only)"
+fi
 
 echo "▶ Building ${BUNDLE_NAME} (debug)…"
 swift build -c debug
@@ -26,9 +33,16 @@ if [ -f "${BUNDLE_NAME}.icns" ]; then
     cp "${BUNDLE_NAME}.icns" "${RESOURCES}/${BUNDLE_NAME}.icns"
 fi
 
-echo "▶ Signing…"
+echo "▶ Signing (${CERT})…"
 codesign --force --deep --sign "${CERT}" \
     --entitlements "${BUNDLE_NAME}.entitlements" \
     "${APP}"
+
+# Sanity-check: reject a silently-invalid signature before the user tries to launch.
+if ! codesign --verify --deep --strict "${APP}" 2>/dev/null; then
+    echo "❌ Signature verification failed — the app will be killed by macOS on launch."
+    echo "   Try: security find-identity -v -p codesigning"
+    exit 1
+fi
 
 echo "▶ Done → ${APP}"
