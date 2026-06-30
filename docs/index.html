@@ -602,7 +602,7 @@ footer {
       <a href="#features" class="nav-link">Features</a>
       <a href="#install" class="nav-link">Install</a>
       <a href="https://github.com/AlbertoBarrago/DockDock" target="_blank" rel="noopener" class="nav-link">GitHub</a>
-      <a href="#install" class="nav-btn">Install free</a>
+      <a href="https://github.com/AlbertoBarrago/DockDock/releases/latest" target="_blank" rel="noopener" class="nav-btn">Download</a>
     </div>
   </div>
 </nav>
@@ -617,11 +617,11 @@ footer {
     <h1>Window previews,<br>right in your Dock.</h1>
     <p class="hero-sub">Hover any icon. See every open window as a live thumbnail — focus, minimize or close without switching apps.</p>
     <div class="cta-row">
-      <a href="#install" class="btn-primary">
+      <a href="https://github.com/AlbertoBarrago/DockDock/releases/latest" target="_blank" rel="noopener" class="btn-primary">
         <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
           <path d="M7.5 1v8.5M7.5 9.5L5 7M7.5 9.5L10 7M1.5 12.5h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
-        Install free
+        Download DMG
       </a>
       <a href="https://github.com/AlbertoBarrago/DockDock" target="_blank" rel="noopener" class="btn-ghost">
         <svg width="15" height="15" viewBox="0 0 15 15" fill="currentColor">
@@ -718,27 +718,38 @@ footer {
 
       <div>
         <div class="sec-eyebrow">Install</div>
-        <h2>Two commands.<br>You're done.</h2>
-        <p class="install-prose">Clone the repo and run the build script. It compiles a signed release binary and installs it to <code>/Applications</code> — under a minute from zero.</p>
+        <h2>Download and run.</h2>
+        <p class="install-prose">Grab the DMG, drag the app to Applications — up and running in under a minute.</p>
+
+        <a href="https://github.com/AlbertoBarrago/DockDock/releases/latest" target="_blank" rel="noopener" class="btn-primary" style="display:inline-flex;margin-bottom:28px;font-size:14px;">
+          <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+            <path d="M7.5 1v8.5M7.5 9.5L5 7M7.5 9.5L10 7M1.5 12.5h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          Download DMG
+        </a>
+
         <div class="steps">
           <div class="step">
             <div class="step-n">1</div>
-            <span>On first launch, grant <strong>Accessibility</strong> when macOS prompts. Required to read Dock icon positions and manage windows.</span>
+            <span>Open <code>DockDock-*.dmg</code> and drag the app to <strong>Applications</strong>.</span>
           </div>
           <div class="step">
             <div class="step-n">2</div>
-            <span>Grant <strong>Screen Recording</strong> in System Settings → Privacy &amp; Security for live window thumbnails.</span>
+            <span><strong>First launch:</strong> right-click the app → <em>Open</em> → <em>Open Anyway</em>. macOS Gatekeeper blocks unsigned apps once — this clears it permanently.</span>
           </div>
           <div class="step">
             <div class="step-n">3</div>
-            <span>DockDock sits in the menu bar — no Dock icon, no background windows. The preview panel appears only when you hover.</span>
+            <span>Grant <strong>Accessibility</strong> when macOS prompts — required to detect Dock icons and manage windows.</span>
+          </div>
+          <div class="step">
+            <div class="step-n">4</div>
+            <span>Grant <strong>Screen Recording</strong> for live window thumbnails (optional — the panel still works without it).</span>
           </div>
         </div>
         <p class="install-note">
-          Requires Xcode Command Line Tools (<code>xcode-select --install</code>) or Xcode.
-          After each new build, macOS may ask to re-grant Screen Recording — the permission is tied to the binary hash.
+          Prefer to build from source? <code>git clone</code> + <code>bash bin/make-app.sh</code> — no Xcode project needed, just Command Line Tools.
           <br><br>
-          <a href="https://github.com/AlbertoBarrago/DockDock/blob/main/README.md" target="_blank" rel="noopener">Full documentation on GitHub →</a>
+          <a href="https://github.com/AlbertoBarrago/DockDock/releases" target="_blank" rel="noopener">All releases on GitHub →</a>
         </p>
       </div>
 
@@ -750,23 +761,25 @@ footer {
           <div class="term-title">Terminal</div>
         </div>
         <div class="term-body">
+          <div class="tl-comment"># if macOS still blocks after right-click → Open</div>
+          <div class="tl">
+            <span class="tl-prompt">$</span>
+            <span class="tl-cmd">xattr -cr /Applications/DockDock.app</span>
+          </div>
+          <div class="tl">
+            <span class="tl-prompt">$</span>
+            <span class="tl-cmd">open /Applications/DockDock.app</span>
+          </div>
+          <div class="tl-comment" style="margin-top:14px;"># or build from source</div>
           <div class="tl">
             <span class="tl-prompt">$</span>
             <span class="tl-cmd">git clone https://github.com/<br>&nbsp;&nbsp;&nbsp;&nbsp;AlbertoBarrago/DockDock.git</span>
           </div>
           <div class="tl">
             <span class="tl-prompt">$</span>
-            <span class="tl-cmd">cd DockDock</span>
-          </div>
-          <div class="tl">
-            <span class="tl-prompt">$</span>
-            <span class="tl-cmd">bash bin/make-app.sh</span>
+            <span class="tl-cmd">cd DockDock &amp;&amp; bash bin/make-app.sh</span>
           </div>
           <div class="tl-comment"># → /Applications/DockDock.app ✓</div>
-          <div class="tl">
-            <span class="tl-prompt">$</span>
-            <span class="tl-cmd">open /Applications/DockDock.app</span>
-          </div>
         </div>
       </div>
 
