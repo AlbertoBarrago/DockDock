@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>DockDock — Window previews for macOS</title>
+<title>DockDock | Window previews for macOS</title>
 <meta name="description" content="Hover any Dock icon. See every open window as a live thumbnail. Native macOS, zero dependencies.">
 <style>
 /* ── Tokens ──────────────────────────────────────────────── */
@@ -605,7 +605,7 @@ footer {
     <img src="icon.png" alt="DockDock" class="hero-icon">
     <div class="eyebrow">macOS 14 Sonoma+</div>
     <h1>Window previews,<br>right in your Dock.</h1>
-    <p class="hero-sub">Hover any icon. See every open window as a live thumbnail — focus, minimize or close without switching apps.</p>
+    <p class="hero-sub">Hover any icon. See every open window as a live thumbnail. Focus, minimize or close without switching apps.</p>
     <div class="cta-row">
       <a href="https://github.com/AlbertoBarrago/DockDock/releases/latest" target="_blank" rel="noopener" class="btn-primary">
         <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
@@ -639,7 +639,7 @@ footer {
         <div class="demo-ico ico-amber" id="jsIco4"></div>
       </div>
     </div>
-    <!-- /demo-outer intentionally has no bottom border — blends into page -->
+    <!-- /demo-outer intentionally has no bottom border. Blends into page. -->
 
   </div>
 </section>
@@ -661,7 +661,7 @@ footer {
           </svg>
         </div>
         <div class="feat-title">Live window thumbnails</div>
-        <div class="feat-desc">Real-time captures via ScreenCaptureKit — every thumbnail shows the window's actual current state, not a stale screenshot.</div>
+        <div class="feat-desc">Real-time captures via ScreenCaptureKit. Every thumbnail shows the window's actual current state, not a stale screenshot.</div>
       </div>
 
       <div class="feat-card">
@@ -672,7 +672,7 @@ footer {
           </svg>
         </div>
         <div class="feat-title">Spotify panel</div>
-        <div class="feat-desc">Album art, track info, progress bar and full playback controls — all surfaced at the Dock, without switching to the app.</div>
+        <div class="feat-desc">Album art, track info, progress bar and full playback controls, all surfaced at the Dock without switching to the app.</div>
       </div>
 
       <div class="feat-card">
@@ -694,7 +694,7 @@ footer {
           </svg>
         </div>
         <div class="feat-title">Zero footprint, native only</div>
-        <div class="feat-desc">Lives in the menu bar, no Dock icon. Built entirely with public Apple APIs — Accessibility, ScreenCaptureKit, AppKit. No private entitlements.</div>
+        <div class="feat-desc">Lives in the menu bar, no Dock icon. Built entirely with public Apple APIs: Accessibility, ScreenCaptureKit and AppKit. No private entitlements.</div>
       </div>
 
     </div>
@@ -709,7 +709,7 @@ footer {
       <div>
         <div class="sec-eyebrow">Install</div>
         <h2>Download and run.</h2>
-        <p class="install-prose">Grab the DMG, drag the app to Applications — up and running in under a minute.</p>
+        <p class="install-prose">Grab the DMG and drag the app to Applications. Up and running in under a minute.</p>
 
         <a href="https://github.com/AlbertoBarrago/DockDock/releases/latest" target="_blank" rel="noopener" class="btn-primary" style="display:inline-flex;margin-bottom:28px;font-size:14px;">
           <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
@@ -725,19 +725,19 @@ footer {
           </div>
           <div class="step">
             <div class="step-n">2</div>
-            <span><strong>First launch:</strong> right-click the app → <em>Open</em> → <em>Open Anyway</em>. macOS Gatekeeper blocks unsigned apps once — this clears it permanently.</span>
+            <span><strong>First launch:</strong> right-click the app → <em>Open</em> → <em>Open Anyway</em>. macOS Gatekeeper blocks unsigned apps once. This clears it permanently.</span>
           </div>
           <div class="step">
             <div class="step-n">3</div>
-            <span>Grant <strong>Accessibility</strong> when macOS prompts — required to detect Dock icons and manage windows.</span>
+            <span>Grant <strong>Accessibility</strong> when macOS prompts. Required to detect Dock icons and manage windows.</span>
           </div>
           <div class="step">
             <div class="step-n">4</div>
-            <span>Grant <strong>Screen Recording</strong> for live window thumbnails (optional — the panel still works without it).</span>
+            <span>Grant <strong>Screen Recording</strong> for live window thumbnails. Optional, the panel still works without it.</span>
           </div>
         </div>
         <p class="install-note">
-          Prefer to build from source? <code>git clone</code> + <code>bash bin/make-app.sh</code> — no Xcode project needed, just Command Line Tools.
+          Prefer to build from source? <code>git clone</code> + <code>bash bin/make-app.sh</code>. No Xcode project needed, just Command Line Tools.
           <br><br>
           <a href="https://github.com/AlbertoBarrago/DockDock/releases" target="_blank" rel="noopener">All releases on GitHub →</a>
         </p>
@@ -808,7 +808,7 @@ footer {
     <div class="foot-inner">
       <a href="#" class="foot-brand">
         <img src="icon.png" alt="">
-        DockDock — MIT License
+        DockDock | MIT License
       </a>
       <div class="foot-links">
         <a href="https://github.com/AlbertoBarrago/DockDock" target="_blank" rel="noopener">Source</a>
@@ -829,7 +829,7 @@ footer {
   // Each entry: thumbnail window specs
   var apps = [
     { cols: 2, windows: [
-      { bar: '#2a5be8', label: 'main.swift — DockDock', lines: [1,.75,.9,.5,.7] },
+      { bar: '#2a5be8', label: 'main.swift | DockDock', lines: [1,.75,.9,.5,.7] },
       { bar: '#2a5be8', label: 'PreviewPanel.swift',    lines: [1,.6,.8,.45] }
     ]},
     { cols: 1, windows: [
@@ -842,8 +842,8 @@ footer {
       { bar: '#c02f2f', label: 'Users',                 lines: [1,.75] }
     ]},
     { cols: 2, windows: [
-      { bar: '#1b8f52', label: 'zsh — ~/Code/DockDock', lines: [1,.55,.7,.9,.4] },
-      { bar: '#1b8f52', label: 'zsh — ~',               lines: [1,.8,.5] }
+      { bar: '#1b8f52', label: 'zsh | ~/Code/DockDock', lines: [1,.55,.7,.9,.4] },
+      { bar: '#1b8f52', label: 'zsh | ~',               lines: [1,.8,.5] }
     ]},
     { cols: 2, windows: [
       { bar: '#b87400', label: 'Inbox',                 lines: [1,.6,.85,.45,.7] },
