@@ -6,6 +6,10 @@
   ![macOS](https://img.shields.io/badge/macOS-14%2B-black?style=flat-square)
   ![Swift](https://img.shields.io/badge/Swift-5.9-F05138?style=flat-square&logo=swift&logoColor=white)
   ![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)
+
+  <p>
+    <img src="docs/demo.gif" width="740" alt="DockDock preview animation" />
+  </p>
 </div>
 
 ---
