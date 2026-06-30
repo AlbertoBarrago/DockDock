@@ -21,7 +21,7 @@ if [ -z "${CERT}" ]; then
 fi
 
 echo "▶ Stopping running instance…"
-pkill -x "${BUNDLE_NAME}" 2>/dev/null; sleep 0.3
+pkill -x "${BUNDLE_NAME}" 2>/dev/null || true; sleep 0.3
 
 echo "▶ Building ${BUNDLE_NAME} (release)…"
 swift build -c release

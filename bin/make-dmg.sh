@@ -21,6 +21,14 @@ trap 'rm -rf "${TMP_DIR}"' EXIT
 cp -R "${APP}" "${TMP_DIR}/"
 ln -s /Applications "${TMP_DIR}/Applications"
 
+# Re-sign with ad-hoc for distribution: Apple Development certs are device-restricted
+# and are rejected by Gatekeeper on other Macs even after xattr -cr.
+# Ad-hoc (-) produces a valid signature that works on any machine.
+echo "▶ Re-signing ad-hoc for distribution…"
+codesign --force --deep --sign - \
+    --entitlements "${BUNDLE_NAME}.entitlements" \
+    "${TMP_DIR}/${BUNDLE_NAME}.app"
+
 # Produce compressed read-only DMG
 echo "▶ Packaging ${DMG_NAME}…"
 rm -f "${DMG_NAME}"
