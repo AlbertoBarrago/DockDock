@@ -14,9 +14,9 @@
     <key>CFBundleIdentifier</key>
     <string>com.alBz.DockDock</string>
     <key>CFBundleVersion</key>
-    <string>2</string>
+    <string>3</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.2.0</string>
+    <string>0.2.1</string>
     <!-- Descrizioni per i dialog di permesso sistema -->
     <key>NSAccessibilityUsageDescription</key>
     <string>DockDock needs accessibility access to detect which app icon you're hovering in the Dock and to manage windows.</string>

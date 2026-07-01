@@ -43,6 +43,22 @@ struct ThumbnailView: View {
             Image(cgImage, scale: 1, orientation: .up, label: Text(window.title))
                 .resizable()
                 .aspectRatio(contentMode: .fit)
+        } else if isStageManagerEnabled {
+            Rectangle()
+                .fill(.ultraThinMaterial)
+                .overlay(
+                    VStack(spacing: 6) {
+                        Text("Stage Manager attivo")
+                            .font(.system(size: 13, weight: .semibold))
+                        Text("Ringrazia i geni della Apple per questa schifezza.")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(2)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, showTitle ? 18 : 0)
+                )
         } else {
             Rectangle()
                 .fill(.ultraThinMaterial)
@@ -52,6 +68,14 @@ struct ThumbnailView: View {
                         .foregroundStyle(.secondary)
                 )
         }
+    }
+
+    private var isStageManagerEnabled: Bool {
+        let value = CFPreferencesCopyAppValue(
+            "GloballyEnabled" as CFString,
+            "com.apple.WindowManager" as CFString
+        )
+        return (value as? Bool) ?? false
     }
 
     private var titleBar: some View {

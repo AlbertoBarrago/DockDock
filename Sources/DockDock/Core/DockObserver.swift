@@ -357,8 +357,15 @@ final class DockObserver: ObservableObject {
            let app = running.first(where: { $0.bundleIdentifier == bid }) {
             return .running(app: app, frame: frame)
         }
+        if let url = appURL,
+           let app = running.first(where: { $0.bundleURL?.standardizedFileURL == url.standardizedFileURL }) {
+            return .running(app: app, frame: frame)
+        }
+        if let app = chromeRunningApp(forBundleID: bundleID, title: title, running: running) {
+            return .running(app: app, frame: frame)
+        }
         if let name = title,
-           let app = running.first(where: { $0.localizedName == name }) {
+           let app = running.first(where: { namesMatch($0.localizedName, name) }) {
             return .running(app: app, frame: frame)
         }
 
@@ -368,6 +375,35 @@ final class DockObserver: ObservableObject {
         guard bundleID != nil || title != nil else { return nil }
         let info = NotRunningAppInfo(bundleID: bundleID, name: title, icon: nil, url: appURL)
         return .notRunning(info: info, frame: frame)
+    }
+
+    private func chromeRunningApp(forBundleID bundleID: String?, title: String?, running: [NSRunningApplication]) -> NSRunningApplication? {
+        let looksLikeChrome = bundleID?.hasPrefix("com.google.Chrome") == true
+            || title.map { normalizedName($0).contains("chrome") } == true
+        guard looksLikeChrome else { return nil }
+
+        return running.first {
+            $0.bundleIdentifier == "com.google.Chrome"
+                || $0.bundleIdentifier?.hasPrefix("com.google.Chrome.app.") == true
+                || normalizedName($0.localizedName).contains("chrome")
+        }
+    }
+
+    private func namesMatch(_ lhs: String?, _ rhs: String?) -> Bool {
+        let l = normalizedName(lhs)
+        let r = normalizedName(rhs)
+        guard !l.isEmpty, !r.isEmpty else { return false }
+        if l == r { return true }
+        if l == "google chrome", r == "chrome" { return true }
+        if l == "chrome", r == "google chrome" { return true }
+        return false
+    }
+
+    private func normalizedName(_ value: String?) -> String {
+        (value ?? "")
+            .lowercased()
+            .replacingOccurrences(of: "google ", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     // MARK: - AX helpers

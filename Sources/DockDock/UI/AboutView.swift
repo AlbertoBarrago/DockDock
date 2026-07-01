@@ -1,6 +1,10 @@
 import SwiftUI
 
 struct AboutView: View {
+    private var version: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
+    }
+
     private let icon: NSImage? = {
         // Load from the bundle's .icns at native resolution — never use applicationIconImage
         // which returns a scaled-down composite.
@@ -28,7 +32,7 @@ struct AboutView: View {
             // Name + version
             Text("DockDock")
                 .font(.system(size: 20, weight: .semibold))
-            Text("Version 0.1.0")
+            Text("Version \(version)")
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
                 .padding(.top, 2)

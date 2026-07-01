@@ -19,6 +19,7 @@ enum WindowCapture {
     private struct AXWindowEntry {
         let title: String
         let isMinimized: Bool
+        let frame: CGRect?
     }
 
     /// Returns the windows AX considers user-facing for `pid`.
@@ -39,8 +40,33 @@ enum WindowCapture {
 
             var minimizedRef: AnyObject?
             AXUIElementCopyAttributeValue(win, kAXMinimizedAttribute as CFString, &minimizedRef)
-            return AXWindowEntry(title: title, isMinimized: (minimizedRef as? Bool) ?? false)
+            return AXWindowEntry(
+                title: title,
+                isMinimized: (minimizedRef as? Bool) ?? false,
+                frame: axFrame(of: win)
+            )
         }
+    }
+
+    private static func axFrame(of win: AXUIElement) -> CGRect? {
+        var positionRef: AnyObject?
+        var sizeRef: AnyObject?
+        guard AXUIElementCopyAttributeValue(win, kAXPositionAttribute as CFString, &positionRef) == .success,
+              AXUIElementCopyAttributeValue(win, kAXSizeAttribute as CFString, &sizeRef) == .success,
+              let positionRef,
+              let sizeRef
+        else { return nil }
+
+        let positionValue = positionRef as! AXValue
+        let sizeValue = sizeRef as! AXValue
+
+        var position = CGPoint.zero
+        var size = CGSize.zero
+        guard AXValueGetValue(positionValue, .cgPoint, &position),
+              AXValueGetValue(sizeValue, .cgSize, &size)
+        else { return nil }
+
+        return CGRect(origin: position, size: size)
     }
 
     // MARK: - ScreenCaptureKit (macOS 14.2+)
@@ -65,27 +91,33 @@ enum WindowCapture {
         // - nil: AX unavailable → fall back to title heuristic
         // - []: AX available, app has no windows → return empty authoritatively
         let axEntries = axWindows(for: pid)
-        let axByTitle: [String: Bool]? = axEntries.map { entries in
-            Dictionary(entries.map { ($0.title, $0.isMinimized) }, uniquingKeysWith: { first, _ in first })
+        let hasChromeLikeBundle = isChromeLikeBundle(bundleID)
+        let usableAXEntries = axEntries.flatMap { entries -> [AXWindowEntry]? in
+            if entries.isEmpty && hasChromeLikeBundle {
+                return nil
+            }
+            return entries
+        }
+        let axByTitle: [String: AXWindowEntry]? = usableAXEntries.map { entries in
+            Dictionary(entries.map { ($0.title, $0) }, uniquingKeysWith: { first, _ in first })
         }
 
         let scWindows = content.windows.filter { w in
             guard w.frame.width > 50, w.frame.height > 50 else { return false }
             guard w.windowLayer >= 0 else { return false }
+            if hasChromeLikeBundle && w.windowLayer != 0 { return false }
 
             if let lookup = axByTitle {
                 // AX available: only include windows AX considers real.
-                guard let title = w.title, !title.isEmpty, lookup[title] != nil else { return false }
+                guard let title = w.title, !title.isEmpty else { return false }
+                if lookup[title] == nil && !hasChromeLikeBundle { return false }
             } else {
                 // AX unavailable: exclude off-screen windows without a title
                 // (background/utility windows that are never real user windows).
                 if !w.isOnScreen, w.title?.isEmpty ?? true { return false }
             }
 
-            if let bid = bundleID {
-                return w.owningApplication?.bundleIdentifier == bid
-            }
-            return w.owningApplication?.processID == pid
+            return windowOwnerMatchesTarget(w, targetPID: pid, targetBundleID: bundleID)
         }
 
         log("WindowCapture: SCKit total=\(content.windows.count) matched=\(scWindows.count) for '\(bundleID ?? String(pid))'")
@@ -94,8 +126,8 @@ enum WindowCapture {
             for w in scWindows {
                 // Use AX's minimized state when available — it's more accurate than
                 // isOnScreen (which also catches invisible utility/background windows).
-                let axMinimized = axByTitle?[w.title ?? ""]
-                group.addTask { await screenshotWindow(w, pid: pid, isMinimizedOverride: axMinimized) }
+                let axEntry = axByTitle?[w.title ?? ""]
+                group.addTask { await screenshotWindow(w, pid: pid, axEntry: axEntry) }
             }
             var out: [WindowInfo] = []
             for await i in group { if let i { out.append(i) } }
@@ -104,10 +136,14 @@ enum WindowCapture {
     }
 
     @available(macOS 14.2, *)
-    private static func screenshotWindow(_ w: SCWindow, pid: pid_t, isMinimizedOverride: Bool? = nil) async -> WindowInfo? {
-        let isMinimized = isMinimizedOverride ?? !w.isOnScreen
+    private static func screenshotWindow(_ w: SCWindow, pid: pid_t, axEntry: AXWindowEntry? = nil) async -> WindowInfo? {
+        let isMinimized = axEntry?.isMinimized ?? (!w.isOnScreen && !w.isActive)
         var thumb: CGImage?
-        if !isMinimized && w.isOnScreen {
+        let shouldCapture = shouldCaptureThumbnail(for: pid)
+        let sizeMatches = matchesAXWindowSize(w, axEntry: axEntry)
+        // With Stage Manager, inactive shelf previews can still be "on screen".
+        // Capturing those returns the small stored Stage Manager view instead of the real window.
+        if !isMinimized && shouldCapture && w.isActive && sizeMatches {
             let filter = SCContentFilter(desktopIndependentWindow: w)
             let cfg = SCStreamConfiguration()
             let scale: CGFloat = 0.5
@@ -126,6 +162,65 @@ enum WindowCapture {
         )
     }
 
+    @available(macOS 14.2, *)
+    private static func matchesAXWindowSize(_ w: SCWindow, axEntry: AXWindowEntry?) -> Bool {
+        guard let axFrame = axEntry?.frame, axFrame.width > 0, axFrame.height > 0 else { return true }
+
+        let widthRatio = w.frame.width / axFrame.width
+        let heightRatio = w.frame.height / axFrame.height
+        let sizeMatches = (0.65...1.35).contains(widthRatio) && (0.65...1.35).contains(heightRatio)
+        if !sizeMatches {
+            log("WindowCapture: skipped Stage Manager-sized thumbnail '\(w.title ?? "")' sc=\(Int(w.frame.width))x\(Int(w.frame.height)) ax=\(Int(axFrame.width))x\(Int(axFrame.height))")
+        }
+        return sizeMatches
+    }
+
+    private static func shouldCaptureThumbnail(for pid: pid_t) -> Bool {
+        if isStageManagerEnabled() {
+            log("WindowCapture: skipped thumbnail for pid=\(pid) because Stage Manager is enabled")
+            return false
+        }
+        return true
+    }
+
+    private static func isStageManagerEnabled() -> Bool {
+        let value = CFPreferencesCopyAppValue(
+            "GloballyEnabled" as CFString,
+            "com.apple.WindowManager" as CFString
+        )
+        return (value as? Bool) ?? false
+    }
+
+    private static func isChromeLikeBundle(_ bundleID: String?) -> Bool {
+        guard let bundleID else { return false }
+        return bundleID == "com.google.Chrome"
+            || bundleID.hasPrefix("com.google.Chrome.")
+            || bundleID.hasPrefix("com.google.Chrome")
+            || bundleID.hasPrefix("org.chromium.Chromium")
+    }
+
+    @available(macOS 14.2, *)
+    private static func windowOwnerMatchesTarget(_ w: SCWindow, targetPID: pid_t, targetBundleID: String?) -> Bool {
+        guard let targetBundleID else {
+            return w.owningApplication?.processID == targetPID
+        }
+
+        let ownerBundleID = w.owningApplication?.bundleIdentifier
+        if ownerBundleID == targetBundleID { return true }
+
+        if isChromeLikeBundle(targetBundleID) {
+            return isChromeLikeBundle(ownerBundleID)
+                || w.owningApplication?.applicationName == "Google Chrome"
+        }
+
+        return false
+    }
+
+    private static func format(_ rect: CGRect?) -> String {
+        guard let rect else { return "nil" }
+        return "(\(Int(rect.origin.x)),\(Int(rect.origin.y)),\(Int(rect.width))x\(Int(rect.height)))"
+    }
+
     // MARK: - Legacy CGWindowList fallback
 
     private static func captureLegacy(pid: pid_t) -> [WindowInfo] {
@@ -140,8 +235,8 @@ enum WindowCapture {
         log("WindowCapture: legacy pid=\(pid) raw entries=\(pidEntries.count)")
 
         let axEntries = axWindows(for: pid)
-        let axByTitle: [String: Bool]? = axEntries.map { entries in
-            Dictionary(entries.map { ($0.title, $0.isMinimized) }, uniquingKeysWith: { first, _ in first })
+        let axByTitle: [String: AXWindowEntry]? = axEntries.map { entries in
+            Dictionary(entries.map { ($0.title, $0) }, uniquingKeysWith: { first, _ in first })
         }
 
         let screenRecording = CGPreflightScreenCaptureAccess()
@@ -168,8 +263,8 @@ enum WindowCapture {
                 if isOnScreen && title.isEmpty { return nil }
             }
 
-            let isMinimized = axByTitle?[title] ?? !isOnScreen
-            let thumb: CGImage? = !isMinimized && isOnScreen && screenRecording
+            let isMinimized = axByTitle?[title]?.isMinimized ?? !isOnScreen
+            let thumb: CGImage? = !isMinimized && isOnScreen && screenRecording && shouldCaptureThumbnail(for: pid)
                 ? CGWindowListCreateImage(.null, .optionIncludingWindow, windowID, [.nominalResolution, .boundsIgnoreFraming])
                 : nil
             return WindowInfo(
